@@ -35,7 +35,7 @@ def dqn_init(state_input_shape, action_input_shape, name="Deep-Q-Network"):
     x = Flatten()(x)
     x = concatenate([x, action_input])
     x = Dense(128, activation='relu')(x)
-    x = Dense(1, name="q-values")(x)
+    x = Dense(1, kernel_initializer='zeros', name="q-values")(x)
     model = Model(inputs=[state_input, action_input], outputs=[x], name=name)
 
     model.compile(optimizer='nadam', loss=mse)
@@ -109,6 +109,18 @@ class ReplayMemory:
 
 
 def get_all_actions(n, env):
+    """
+    Generate all pertinent combinations (wrt. the environment) of actions for a given size of vector given
+    Example :
+        - 12 actions
+        - Vectors are of the form [1, 0, 0, ..., 0], [0, 1, 0, ..., 0], etc. in one hot encoding
+        - get_all_actions(12, env) will form all combinations of actions in 2**12 (e.g., [1, 0, 1, ..., 1]
+        - get_all_actions(12, env) will ignore combinations of actions that have the same meaning
+
+    :param n: number of actions
+    :param env: environment
+    :return: all pertinents combinations of actions
+    """
     def generate_power_set(n):
         if n == 1:
             return [[1], [0]]
@@ -139,25 +151,22 @@ def get_all_actions(n, env):
 
 class DQL(Strategy):
 
-    def __init__(self, environment, gamma=0.9, history_size=64, replay_memory_size=12000, switch_network_episode=5):
+    def __init__(self, environment, gamma=0.9, history_size=64, replay_memory_size=51200, switch_network_episode=5):
         super().__init__(environment)
         self.input_shape = environment.observation_space.shape
         self.main_dqn = dqn_init(self.input_shape, environment.action_space.shape, name="Main DQN")
-        self.exploration_dqn = None
+        self.exploration_dqn = dqn_init(self.input_shape, self.environment.action_space.shape,
+                                        name="Exploration DQN (episode 0)")
         self.__iteration = 0
-        self.__episode = 0
+        self.__episode = 1
         self.switch_network_episode = switch_network_episode
-        self.history_size = history_size
+        self.batch_size = history_size
         self.replay_memory = ReplayMemory(replay_memory_size)
         self.__random_exploration_phase = True
         self.gamma = gamma  # discount factor
 
         n = self.environment.action_space.shape[0]
         self.action_space = get_all_actions(n, environment)
-        #    self.action_space = np.empty((n + 1, n), dtype='?')  # generate all possible actions
-        #    for i in range(n + 1):
-        #        for j in range(n):
-        #            self.action_space[i][j] = i > j
 
     def play(self, state):
         state = pre_process_input_state(state)
@@ -165,8 +174,8 @@ class DQL(Strategy):
         if self.exploration_dqn:
             return self.action_space[
                 np.argmax(
-                    [self.exploration_dqn.predict([state, pre_process_input_action(action)])
-                     for action in self.action_space]
+                    self.exploration_dqn.predict(
+                        {'state': np.array([state] * len(self.action_space)), 'action': self.action_space})
                 )
             ]
         else:
@@ -177,43 +186,45 @@ class DQL(Strategy):
 
         self.__iteration += 1
         if self.__random_exploration_phase:
-            self.__iteration %= self.replay_memory.maxlen
+            self.__iteration %= self.replay_memory.maxlen / 4
         else:
-            self.__iteration %= self.history_size
+            self.__iteration %= self.batch_size * 10
 
         if done:
             self.__episode += 1
             if LOGS:
                 print("Episode {}, replay memory size: ".format(self.__episode, self.replay_memory.length))
-            if not (self.__episode % self.switch_network_episode) and not self.__random_exploration_phase:
+            if not self.__episode % self.switch_network_episode:
                 if LOGS:
-                    print("Episode {}: switching deep q-network...".format(self.__episode))
+                    print("Episode {}: exploration DQN <- copy of main DQN...".format(self.__episode))
                 self.exploration_dqn = \
-                    dqn_init(self.input_shape, self.environment.action_space.shape[0],
+                    dqn_init(self.input_shape, self.environment.action_space.shape,
                              name="Exploration DQN (episode {})".format(self.__episode))
                 self.exploration_dqn.set_weights(self.main_dqn.get_weights())
 
         if not self.__iteration:
-            self.__random_exploration_phase = False
+            self.fit_main_dqn(epochs=10)
 
-            observations = [[], [], [], []]  # state, action, reward, next_state
-            for memory in self.replay_memory.sample(self.history_size):
-                for i, value in enumerate(memory):
-                    observations[i].append(value)
-            observations = [np.array(col) for col in observations]
-            states, actions, rewards, next_states = \
-                pre_process_input_state(observations[0]), pre_process_input_action(observations[1]), \
-                observations[2], pre_process_input_state(observations[3])
-            q_values = np.empty(shape=(len(states),), dtype='float64')
-            for i in range(q_values.size):
-                if self.exploration_dqn:
-                    q_values[i] = rewards[i] + self.gamma * \
-                                  np.max(self.exploration_dqn.predict(
-                                      [next_states[i], action] for action in self.action_space))
-                else:
-                    q_values[i] = rewards[i]
-            if LOGS:
-                print("Fit critical deep q-network...")
-            self.main_dqn.fit({'state': states, 'action': actions},
-                              {'q-values': q_values},
-                              epochs=1, batch_size=self.history_size)
+    def fit_main_dqn(self, epochs):
+        observations = [[], [], [], []]  # state, action, reward, next_state
+        for memory in self.replay_memory.sample(self.batch_size * epochs):
+            for i, value in enumerate(memory):
+                observations[i].append(value)
+        observations = [np.array(col) for col in observations]
+        states, actions, rewards, next_states = \
+            pre_process_input_state(observations[0]), pre_process_input_action(observations[1]), \
+            observations[2], pre_process_input_state(observations[3])
+        q_values = np.empty(shape=(len(states),), dtype='float64')
+        for i in range(q_values.size):
+            values_next_state = np.max(
+                self.exploration_dqn.predict(
+                    {'state': np.array([next_states[i] * len(self.action_space)]), 'action': [pre_process_input_action(self.action_space)]}
+                )
+            )
+            #  q(states[i], actions[i]) of the current observation i
+            q_values[i] = rewards[i] + self.gamma * values_next_state
+
+        if LOGS:
+            print("Fit critical deep q-network...")
+        self.main_dqn.fit({'state': states, 'action': actions}, {'q-values': q_values},
+                          epochs=1, batch_size=self.batch_size)

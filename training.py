@@ -10,7 +10,7 @@ def custom_epsilon_greedy(env, strategy, epsilon, state):
     p = random.random()
     if p < epsilon:
         p = random.random()
-        if p < 0.2:
+        if p < 0.1:
             return [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]
         else:
             return env.action_space.sample()
@@ -54,14 +54,10 @@ if __name__ == '__main__':
                 action = custom_epsilon_greedy(env, strategy, epsilon, state)
                 next_state, reward, done, info = env.step(action)
                 if done:
-                    reward = -500.
+                    reward = -100.
                 strategy.update(state, action, reward, next_state, done)
                 t += 1
                 if t % 10 == 0:
-                    infostr = ''
-                    if t % 100 == 0 and info:
-                        infostr = ', info: ' + ', '.join(['%s=%i' % (k, v) for k, v in info.items()])
-                        print(('t=%i' % t) + infostr)
                     env.render()
                 total_reward += reward
                 if reward > 0:
@@ -69,11 +65,12 @@ if __name__ == '__main__':
                 if reward < 0:
                     print('t=%i got penalty: %g, total reward: %g' % (t, -reward, total_reward))
                 if done:
-                    epsilon *= 0.98  # decay epsilon at each episode
+                    epsilon *= 0.96  # decay epsilon at each episode
+                    print("epsilon={}".format(epsilon))
                     env.render()
                     try:
                         print("done! time=%i, reward=%d" % (t, total_reward))
-                        input("press enter to continue")
+                        #  input("press enter to continue")
                         print()
                     except EOFError:
                         exit(0)
