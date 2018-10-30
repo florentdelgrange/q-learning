@@ -96,12 +96,11 @@ if __name__ == '__main__':
             while True:
                 state = env.get_screen()
                 state = pre_process(state)
-                # action = strategy.play(state)  # actions are one hot encoded
+
                 action = custom_epsilon_greedy(strategy, epsilon, state)
+
                 next_state, reward, done, info = env.step(action)
                 next_state = pre_process(next_state)
-                if done:
-                    reward = -100.
                 strategy.update(state, action, reward, next_state, done)
                 t += 1
                 if t % 10 == 0:
@@ -114,7 +113,7 @@ if __name__ == '__main__':
                 if reward < 0:
                     print('t=%i got penalty: %g, total reward: %g' % (t, -reward, total_reward))
                 if done:
-                    epsilon *= 0.99  # decay epsilon at each episode
+                    epsilon *= 0.9999  # decay epsilon at each episode
                     print("epsilon={}".format(epsilon))
                     env.render()
                     try:

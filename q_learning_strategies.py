@@ -1,6 +1,7 @@
 import random
 
 from keras import Sequential, Input, Model
+from keras.callbacks import ModelCheckpoint
 from keras.losses import mse
 
 from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, GlobalAveragePooling2D, Dropout, Activation, concatenate, \
@@ -8,6 +9,10 @@ from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, GlobalAveragePool
 import numpy as np
 
 LOGS = True
+CHECKPOINT_PATH = './models/model_checkpoint.hdf5'
+CHECKPOINT = ModelCheckpoint(CHECKPOINT_PATH, verbose=1, save_best_only=False)
+CALLBACKS = [CHECKPOINT]
+
 
 
 def pre_process_input_state(s):
@@ -155,7 +160,7 @@ def get_all_actions(n, env):
 
 class DQL(Strategy):
 
-    def __init__(self, environment, gamma=0.9, history_size=64, replay_memory_size=12800, switch_network_episode=10,
+    def __init__(self, environment, gamma=0.9, history_size=64, replay_memory_size=12800, switch_network_episode=16,
                  input_shape=None, action_space=[]):
         super().__init__(environment)
         if input_shape:
@@ -247,4 +252,4 @@ class DQL(Strategy):
         if LOGS:
             print("Fit critical deep q-network...")
         self.main_dqn.fit({'state': states, 'action': actions}, {'q-values': q_values},
-                          epochs=1, batch_size=self.batch_size)
+                          epochs=1, batch_size=self.batch_size, callbacks=CALLBACKS)
