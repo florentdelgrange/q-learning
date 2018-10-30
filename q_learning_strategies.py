@@ -1,3 +1,5 @@
+import random
+
 from keras import Sequential, Input, Model
 from keras.losses import mse
 
@@ -81,7 +83,7 @@ class ReplayMemory:
         self.length = min(self.length + 1, self.maxlen)
         self.index = (self.index + 1) % self.maxlen
 
-    def sample(self, batch_size, with_replacement=True):
+    def sample(self, batch_size, with_replacement=False):
         """
         Gather n random samples from the ring buffer.
         :param batch_size: number of samples to randomly gather from the ReplayMemory
@@ -151,9 +153,13 @@ def get_all_actions(n, env):
 
 class DQL(Strategy):
 
-    def __init__(self, environment, gamma=0.9, history_size=64, replay_memory_size=51200, switch_network_episode=5):
+    def __init__(self, environment, gamma=0.9, history_size=64, replay_memory_size=12800, switch_network_episode=10,
+                 input_shape=None, action_space=[]):
         super().__init__(environment)
-        self.input_shape = environment.observation_space.shape
+        if input_shape:
+            self.input_shape = input_shape
+        else:
+            self.input_shape = environment.observation_space.shape
         self.main_dqn = dqn_init(self.input_shape, environment.action_space.shape, name="Main DQN")
         self.exploration_dqn = dqn_init(self.input_shape, self.environment.action_space.shape,
                                         name="Exploration DQN (episode 0)")
@@ -166,12 +172,18 @@ class DQL(Strategy):
         self.gamma = gamma  # discount factor
 
         n = self.environment.action_space.shape[0]
-        self.action_space = get_all_actions(n, environment)
+        if len(action_space):
+            self.action_space = action_space
+        else:
+            self.action_space = get_all_actions(n, environment)
 
-    def play(self, state):
+    def play(self, state, exploration=True):
         state = pre_process_input_state(state)
 
-        if self.exploration_dqn:
+        if self.__random_exploration_phase:
+            return self.action_space[random.randint(0, self.action_space.shape[0] - 1)]
+
+        elif exploration:
             return self.action_space[
                 np.argmax(
                     self.exploration_dqn.predict(
@@ -179,14 +191,19 @@ class DQL(Strategy):
                 )
             ]
         else:
-            return self.environment.action_space.sample()
+            return self.action_space[
+                np.argmax(
+                    self.main_dqn.predict(
+                        {'state': np.array([state] * len(self.action_space)), 'action': self.action_space})
+                )
+            ]
 
     def update(self, state, action, reward, next_state, done=False):
         self.replay_memory.append((state, action, reward, next_state))
 
         self.__iteration += 1
         if self.__random_exploration_phase:
-            self.__iteration %= self.replay_memory.maxlen / 4
+            self.__iteration %= self.replay_memory.maxlen
         else:
             self.__iteration %= self.batch_size * 10
 
@@ -195,6 +212,7 @@ class DQL(Strategy):
             if LOGS:
                 print("Episode {}, replay memory size: ".format(self.__episode, self.replay_memory.length))
             if not self.__episode % self.switch_network_episode:
+                self.__random_exploration_phase = False
                 if LOGS:
                     print("Episode {}: exploration DQN <- copy of main DQN...".format(self.__episode))
                 self.exploration_dqn = \
@@ -218,7 +236,7 @@ class DQL(Strategy):
         for i in range(q_values.size):
             values_next_state = np.max(
                 self.exploration_dqn.predict(
-                    {'state': np.array([next_states[i] * len(self.action_space)]), 'action': [pre_process_input_action(self.action_space)]}
+                    {'state': np.array([next_states[i] * len(self.action_space)]), 'action': pre_process_input_action(self.action_space)}
                 )
             )
             #  q(states[i], actions[i]) of the current observation i
