@@ -83,7 +83,7 @@ class ReplayMemory:
         self.length = min(self.length + 1, self.maxlen)
         self.index = (self.index + 1) % self.maxlen
 
-    def sample(self, batch_size, with_replacement=False):
+    def sample(self, batch_size, with_replacement=True):
         """
         Gather n random samples from the ring buffer.
         :param batch_size: number of samples to randomly gather from the ReplayMemory
@@ -95,10 +95,12 @@ class ReplayMemory:
             indices = np.random.permutation(self.length)
             buf = self.buf[indices]
             if batch_size < self.length:
-                self.buf = np.concatenate((buf[batch_size:],
-                                           np.empty(shape=batch_size, dtype=np.object)), axis=0)
+                rest = buf[batch_size:]
+                self.buf = np.concatenate(
+                    (rest, np.empty(shape=(batch_size + self.maxlen - self.length), dtype=np.object)),
+                    axis=0)
                 self.length = max(self.length - batch_size, 0)
-                self.index = (self.index - batch_size) % self.maxlen
+                self.index = len(rest)
                 return buf[:batch_size]
             else:
                 self.buf = np.empty(shape=self.maxlen, dtype=np.object)
