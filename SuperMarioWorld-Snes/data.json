@@ -1,0 +1,24 @@
+{
+  "info": {
+    "score": {
+      "type": "<u4",
+      "address": 8261428
+    },
+    "lives": {
+      "type": "|u1",
+      "address": 8261399
+    },
+    "coins": {
+      "type": "|u1",
+      "address": 8261055
+    },
+    "PlayerStatus": {
+      "type":"<u1",
+      "address": 8257649
+    },
+    "timer":{
+      "type": "<u1",
+      "address": 8261427
+    }
+  }
+}
