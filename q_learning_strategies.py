@@ -162,14 +162,14 @@ def get_all_actions(n, env):
 
 class DQL(Strategy):
 
-    def __init__(self, environment, gamma=0.99, batch_size=64, replay_memory_size=1200, switch_network_episode=16,
+    def __init__(self, environment, gamma=0.99, batch_size=64, replay_memory_size=12800, switch_network_episode=5,
                  input_shape=None, action_space=[]):
         super().__init__(environment)
         if input_shape:
             self.input_shape = input_shape
 
         self.main_dqn = dqn_init(self.input_shape, environment.action_space.shape, name="Main DQN")
-        self.exploration_dqn = dqn_init(self.input_shape, self.environment.action_space.shape,
+        self.exploration_dqn = dqn_init(self.input_shape, environment.action_space.shape,
                                         name="Exploration DQN (episode 0)")
         self.__random_exploration_phase = True
 
@@ -240,13 +240,30 @@ class DQL(Strategy):
 
     def fit_main_dqn(self):
 
+        n = self.replay_memory.length
+        observations = [[], [], [], []]  # state, action, reward, next_state
+        for memory in self.replay_memory.sample(n):
+            for i, value in enumerate(memory):
+                observations[i].append(value)
+        observations = [np.array(col) for col in observations]
+        states, actions, rewards, next_states = \
+            pre_process_input_state(observations[0]), pre_process_input_action(observations[1]), \
+            observations[2], pre_process_input_state(observations[3])
+        q_values = np.empty(shape=(len(states),), dtype='float')
+        for i in range(q_values.size):
+            values_next_state = np.max(
+                self.exploration_dqn.predict(
+                    {'state': np.array([next_states[i] * len(self.action_space)]),
+                     'action': pre_process_input_action(self.action_space)}
+                )
+            )
+            #  q(states[i], actions[i]) of the current observation i
+            q_values[i] = rewards[i] + self.gamma * values_next_state
+
         if LOGS:
             print("Fit critical deep q-network...")
-
-        self.main_dqn.fit_generator(self.q_generator(),
-                                    steps_per_epoch=self.replay_memory.length // self.batch_size,
-                                    shuffle=False,
-                                    callbacks=CALLBACKS)
+        self.main_dqn.fit({'state': states, 'action': actions}, {'q-values': q_values},
+                          epochs=1, batch_size=self.batch_size, callbacks=CALLBACKS)
 
     def q_generator(self):
         while True:
@@ -254,9 +271,9 @@ class DQL(Strategy):
             states_shape = [n] + list(self.input_shape)
             actions_shape = [n] + list(self.action_space.shape)
             observations = [np.empty(shape=states_shape, dtype='uint8'),  # state
-                            np.empty(shape=actions_shape, dtype='?'),     # action
-                            np.empty(shape=n, dtype='float'),             # reward
-                            np.empty(shape=states_shape, dtype='uint8')   # next_state
+                            np.empty(shape=actions_shape, dtype='?'),  # action
+                            np.empty(shape=n, dtype='float'),  # reward
+                            np.empty(shape=states_shape, dtype='uint8')  # next_state
                             ]
             for j, memory in enumerate(self.replay_memory.sample(n)):
                 for i, value in enumerate(memory):
@@ -277,10 +294,9 @@ class DQL(Strategy):
                     values_next_state = np.max(
                         self.exploration_dqn.predict(
                             {'state': successor,
-                             'action': self.action_space}
+                             'action': pre_process_input_action(self.action_space)}
                         )
                     )
-                    #  q(states[i], actions[i]) of the current observation i
                     q_values[j] = rewards[index(i, j)] + self.gamma * values_next_state
                 yield {'state': pre_process_input_state(states[index(i, 0): index(i + 1, 0)]),
                        'action': pre_process_input_action(actions[index(i, 0): index(i + 1, 0)])

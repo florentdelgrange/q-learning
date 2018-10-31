@@ -33,12 +33,12 @@ meaningful_actions = np.array([
 ], dtype='?')  # meaningful actions for SuperMarioWorld
 
 
-def custom_epsilon_greedy(strategy, epsilon, state):
+def custom_epsilon_greedy(strategy, epsilon, state, current_sum=0):
     p = random.random()
     if p < epsilon:
         p = random.random()
-        if p < 0.15:
-            return [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]  # RIGHT
+        if p < epsilon / 2 and current_sum > -200:
+            return [0., 1., 0., 0., 0., 0., 0., 1., 0., 0., 0., 0.]  # Y + RIGHT (accelerate RIGHT)
         else:
             return meaningful_actions[random.randint(0, meaningful_actions.shape[0] - 1)]
     else:
@@ -60,6 +60,8 @@ def show_all_actions_meaning(env):
         print(env.get_action_meaning(action))
         print(" ")
 
+def liveness(reward):
+    return reward if reward else -0.025
 
 if __name__ == '__main__':
     states = "Bridges1          Forest1           VanillaDome5\
@@ -97,28 +99,27 @@ if __name__ == '__main__':
                 state = env.get_screen()
                 state = pre_process(state)
 
-                action = custom_epsilon_greedy(strategy, epsilon, state)
+                action = custom_epsilon_greedy(strategy, epsilon, state, total_reward)
 
                 next_state, reward, done, info = env.step(action)
                 next_state = pre_process(next_state)
-                strategy.update(state, action, reward, next_state, done)
+                strategy.update(state, action, liveness(reward), next_state, done)
                 t += 1
                 if t % 10 == 0:
                     env.render()
                 if not t % 100:
                     plt.imsave("last_state.png", np.array(np.squeeze(state)))
-                total_reward += reward
+                total_reward += liveness(reward)
                 if reward > 0:
                     print('t=%i got reward: %g, total reward: %g' % (t, reward, total_reward))
                 if reward < 0:
                     print('t=%i got penalty: %g, total reward: %g' % (t, -reward, total_reward))
                 if done:
-                    epsilon *= 0.9999  # decay epsilon at each episode
+                    epsilon *= 0.995  # decay epsilon at each episode
                     print("epsilon={}".format(epsilon))
                     env.render()
                     try:
                         print("done! time=%i, reward=%d" % (t, total_reward))
-                        #  input("press enter to continue")
                         print()
                     except EOFError:
                         exit(0)
