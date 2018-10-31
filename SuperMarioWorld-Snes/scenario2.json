@@ -41,6 +41,11 @@
         "reference": 2,
         "reward": 1
       },
+      "scrolling": {
+        "op": "equal",
+        "reference": 2,
+        "reward": 1
+      },
       "blocked": {
         "op": "equal",
         "reference": 1,

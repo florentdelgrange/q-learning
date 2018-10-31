@@ -27,6 +27,10 @@
     "scrolling":{
       "type": "<u1",
       "address": 8257621
+    },
+    "scrolling2":{
+      "type": "<u1",
+      "address": 8257622
     }
   }
 }
