@@ -11,33 +11,40 @@
       "score": {
         "reward": 1
       },
-      "timer": {
-        "reward": -0.025
-      },
       "PlayerStatus": {
         "op": "equal",
         "reference": 9,
-        "reward": -100
+        "reward": -200
       },
       "PlayerStatus": {
         "op": "equal",
         "reference": 1,
-        "reward": -100
+        "reward": -200
       },
       "PlayerStatus": {
         "op": "equal",
         "reference": 13,
-        "reward": 400
+        "reward": 100
       },
       "PlayerStatus": {
         "op": "equal",
         "reference": 5,
-        "reward": 400
+        "reward": 100
       },
       "PlayerStatus": {
         "op": "equal",
         "reference": 6,
-        "reward": 400
+        "reward": 100
+      },
+      "scrolling": {
+        "op": "equal",
+        "reference": 2,
+        "reward": 1
+      },
+      "blocked": {
+        "op": "equal",
+        "reference": 1,
+        "reward": -20
       }
     }
   }

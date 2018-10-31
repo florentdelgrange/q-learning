@@ -19,6 +19,14 @@
     "timer":{
       "type": "<u1",
       "address": 8261427
+    },
+    "blocked":{
+      "type": "<u1",
+      "address": 8257655
+    },
+    "scrolling":{
+      "type": "<u1",
+      "address": 8257621
     }
   }
 }
