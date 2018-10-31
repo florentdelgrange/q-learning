@@ -37,7 +37,7 @@ def custom_epsilon_greedy(strategy, epsilon, state, current_sum=0):
     p = random.random()
     if p < epsilon:
         p = random.random()
-        if p < epsilon / 2 and current_sum > -200:
+        if p < 5 * epsilon / 8 and current_sum > -200:
             return [0., 1., 0., 0., 0., 0., 0., 1., 0., 0., 0., 0.]  # Y + RIGHT (accelerate RIGHT)
         else:
             return meaningful_actions[random.randint(0, meaningful_actions.shape[0] - 1)]
