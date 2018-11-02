@@ -12,7 +12,7 @@ import numpy as np
 
 LOGS = True
 CHECKPOINT_PATH = './models/model_checkpoint.hdf5'
-CHECKPOINT = ModelCheckpoint(CHECKPOINT_PATH, verbose=1, save_best_only=False)
+CHECKPOINT = ModelCheckpoint(CHECKPOINT_PATH, monitor='mse', verbose=1, save_best_only=True, mode='min')
 CALLBACKS = [CHECKPOINT]
 
 
@@ -46,7 +46,9 @@ def dqn_init(state_input_shape, action_input_shape, name="Deep-Q-Network"):
     x = Dense(1, kernel_initializer='zeros', name="q-values")(x)
     model = Model(inputs=[state_input, action_input], outputs=[x], name=name)
 
-    model.compile(optimizer=SGD(lr=0.005, momentum=0.95, decay=0., nesterov=True), loss=mse)
+    #  model.compile(optimizer=SGD(lr=0.005, momentum=0.95, decay=0., nesterov=True), loss=mse)
+    #  model.compile(optimizer='nadam', loss=mse)
+    model.compile(optimizer='adam', loss=mse)
 
     model.summary()
     return model
@@ -89,7 +91,7 @@ class ReplayMemory:
         self.length = min(self.length + 1, self.maxlen)
         self.index = (self.index + 1) % self.maxlen
 
-    def sample(self, batch_size, with_replacement=False):
+    def sample(self, batch_size, with_replacement=True):
         """
         Gather n random samples from the ring buffer.
         :param batch_size: number of samples to randomly gather from the ReplayMemory
@@ -162,8 +164,9 @@ def get_all_actions(n, env):
 
 class DQL(Strategy):
 
-    def __init__(self, environment, gamma=0.99, batch_size=64, replay_memory_size=12800, switch_network_episode=5,
-                 input_shape=None, action_space=[]):
+    def __init__(self, environment, gamma=0.99,
+                 batch_size=64, replay_memory_size=25600, history_size=5120,
+                 switch_network_episode=8, input_shape=None, action_space=[]):
         super().__init__(environment)
         if input_shape:
             self.input_shape = input_shape
@@ -172,11 +175,13 @@ class DQL(Strategy):
         self.exploration_dqn = dqn_init(self.input_shape, environment.action_space.shape,
                                         name="Exploration DQN (episode 0)")
         self.__random_exploration_phase = True
+        self.__weights_loaded = False
 
         if os.path.isfile(CHECKPOINT_PATH):
-            self.__random_exploration_phase = False
+            #  self.__random_exploration_phase = False
             self.main_dqn.load_weights(CHECKPOINT_PATH)
             self.exploration_dqn.load_weights(CHECKPOINT_PATH)
+            self.__weights_loaded = True
             if LOGS:
                 print("{}: weights loaded".format(CHECKPOINT_PATH))
 
@@ -184,6 +189,7 @@ class DQL(Strategy):
         self.__episode = 1
         self.switch_network_episode = switch_network_episode
         self.batch_size = batch_size
+        self.history_size = history_size
         self.replay_memory = ReplayMemory(replay_memory_size)
         self.gamma = gamma  # discount factor
 
@@ -195,7 +201,7 @@ class DQL(Strategy):
 
     def play(self, state, exploration=True):
 
-        if not exploration:
+        if not exploration:  # TODO: softmax for best Q-values
             return self.action_space[
                 np.argmax(
                     self.main_dqn.predict(
@@ -204,7 +210,7 @@ class DQL(Strategy):
                     )
                 )
             ]
-        elif self.__random_exploration_phase:
+        elif self.__random_exploration_phase and not self.__weights_loaded:
             return self.action_space[random.randint(0, self.action_space.shape[0] - 1)]
 
         else:
@@ -221,26 +227,31 @@ class DQL(Strategy):
         self.replay_memory.append((state, action, reward, next_state))
 
         self.__iteration += 1
-        self.__iteration %= self.replay_memory.maxlen
 
-        if not self.__iteration:
-            self.__random_exploration_phase = False
+        if done and LOGS:
+            print("\nIteration {}, replay memory size={}".format(self.__iteration, self.replay_memory.length))
+
+        if self.__random_exploration_phase:
+            self.__iteration %= self.replay_memory.maxlen
+        else:
+            self.__iteration %= self.history_size
 
         if done and not self.__random_exploration_phase:
             self.__episode += 1
             if LOGS:
-                print("Episode {}, replay memory size: {}".format(self.__episode, self.replay_memory.length))
+                print("Episode {}".format(self.__episode))
             if not self.__episode % self.switch_network_episode:
                 if LOGS:
                     print("Episode {}: exploration DQN <- copy of main DQN...".format(self.__episode))
                 self.exploration_dqn.set_weights(self.main_dqn.get_weights())
 
         if not self.__iteration:
+            self.__random_exploration_phase = False
             self.fit_main_dqn()
 
     def fit_main_dqn(self):
 
-        n = self.replay_memory.length
+        n = self.history_size
         observations = [[], [], [], []]  # state, action, reward, next_state
         for memory in self.replay_memory.sample(n):
             for i, value in enumerate(memory):
@@ -267,7 +278,7 @@ class DQL(Strategy):
 
     def q_generator(self):
         while True:
-            n = self.replay_memory.length
+            n = self.history_size
             states_shape = [n] + list(self.input_shape)
             actions_shape = [n] + list(self.action_space.shape)
             observations = [np.empty(shape=states_shape, dtype='uint8'),  # state
