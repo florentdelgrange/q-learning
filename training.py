@@ -51,13 +51,13 @@ def custom_epsilon_greedy(strategy, epsilon, state, current_sum=0):
     p = random.random()
     if p < epsilon:
         p = random.random()
-        if p < 0.65 * epsilon and current_sum > -200:
+        if p < 0.65 * epsilon and current_sum > -200 and epsilon > 0.85:
             if p <= 0.65 * epsilon / 2:
-                return [0., 1., 0., 0., 0., 0., 0., 1., 0., 0., 0., 0.]  # Y + RIGHT (accelerate RIGHT)
+                return 10  # Y + RIGHT (accelerate RIGHT)
             else:
-                return [1., 1., 0., 0., 0., 0., 0., 1., 0., 0., 0., 0.] # Y + B + RIGHT (accelerate RIGHT and jump)
+                return 9  # Y + B + RIGHT (accelerate RIGHT and jump)
         else:
-            return meaningful_actions[random.randint(0, meaningful_actions.shape[0] - 1)]
+            return random.randint(0, meaningful_actions.shape[0] - 1)
     else:
         return strategy.play(state)
 
@@ -79,23 +79,23 @@ def show_all_actions_meaning(env):
 
 
 def liveness(action, reward):
-    return reward if (action[7] or reward) else -0.025
+    return reward if (meaningful_actions[action][7] or reward) else -0.025
 
 
 if __name__ == '__main__':
 
     args = docopt(__doc__)
-
-    states = "             Forest1\
-        Bridges2           YoshiIsland1\
-                   YoshiIsland2\
-        ChocolateIsland2  Forest4\
-        ChocolateIsland3  Forest5\
-        DonutPlains1      Start             \
-        DonutPlains2      \
-        DonutPlains3      \
-        DonutPlains4      \
-        VanillaDome4".split()
+    states = "Bridges1          Forest2           YoshiIsland2\
+        Bridges2          Forest3           YoshiIsland3\
+        ChocolateIsland1  Forest4           YoshiIsland4\
+        ChocolateIsland2  Forest5           \
+        ChocolateIsland3  Start             \
+        DonutPlains1      VanillaDome1      \
+        DonutPlains2      VanillaDome2      \
+        DonutPlains3      VanillaDome3      \
+        DonutPlains4      VanillaDome4      \
+        DonutPlains5      VanillaDome5      \
+        Forest1           YoshiIsland1".split()
     t = 0
     epsilon = float(args['--epsilon'])
     strategy = None
@@ -114,8 +114,7 @@ if __name__ == '__main__':
             t = 0
             total_reward = 0
             if not strategy:
-                # strategy = RandomStrategy(env)
-                strategy = DQL(env, action_space=meaningful_actions, input_shape=input_shape)
+                strategy = DQL(env, number_of_actions=len(meaningful_actions), input_shape=input_shape)
             else:
                 strategy.environment = env
             while True:
@@ -124,7 +123,7 @@ if __name__ == '__main__':
 
                 action = custom_epsilon_greedy(strategy, epsilon, state, total_reward)
 
-                next_state, reward, done, info = env.step(action)
+                next_state, reward, done, info = env.step(meaningful_actions[action])
                 next_state = pre_process(next_state)
                 strategy.update(state, action, liveness(action, reward), next_state, done)
                 t += 1
@@ -139,7 +138,7 @@ if __name__ == '__main__':
                     print('t=%i got penalty: %g, total reward: %g' % (t, -reward, total_reward))
                 if done:
                     epsilon *= 0.996  # decay epsilon at each episode
-                    print("epsilon={} -- probability to force RIGHT: {}".format(epsilon, 0.65 * epsilon**2))
+                    print("ε={}".format(epsilon))
                     env.render()
                     try:
                         print("done! time=%i, reward=%d" % (t, total_reward))

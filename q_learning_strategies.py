@@ -1,7 +1,8 @@
 import random
 import os
 
-from keras import Sequential, Input, Model
+import tensorflow as tf
+from keras import Input, Model
 from keras.callbacks import ModelCheckpoint
 from keras.losses import mse
 from keras.optimizers import SGD
@@ -9,6 +10,9 @@ from keras.optimizers import SGD
 from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, GlobalAveragePooling2D, Dropout, Activation, concatenate, \
     AveragePooling2D
 import numpy as np
+
+global graph
+graph = tf.get_default_graph()
 
 LOGS = True
 CHECKPOINT_PATH = './models/model_checkpoint.hdf5'
@@ -24,16 +28,8 @@ def pre_process_input_state(s):
     return s
 
 
-def pre_process_input_action(a):
-    a = np.array(a, dtype='float')
-    a -= 0.5
-    a *= 2.
-    return a
-
-
-def dqn_init(state_input_shape, action_input_shape, name="Deep-Q-Network"):
+def dqn_init(state_input_shape, number_of_actions, name="Deep-Q-Network"):
     state_input = Input(shape=state_input_shape, name="state")
-    action_input = Input(shape=action_input_shape, name="action")
     x = Conv2D(16, kernel_size=(5, 5), strides=(1, 1),
                activation='relu',
                input_shape=state_input_shape)(state_input)
@@ -41,16 +37,12 @@ def dqn_init(state_input_shape, action_input_shape, name="Deep-Q-Network"):
     x = Conv2D(32, (3, 3), activation='relu')(x)
     x = AveragePooling2D(pool_size=(2, 2))(x)
     x = Flatten()(x)
-    x = Dense(256, activation='relu')(x)
-    y = Dense(256, activation='relu')(action_input)
-    x = concatenate([x, y])
+    x = Dense(192, activation='relu')(x)
     x = Dense(128, activation='relu')(x)
-    x = Dense(1, name="q-values", kernel_initializer='zeros', activation='linear')(x)
-    model = Model(inputs=[state_input, action_input], outputs=[x],name=name)
+    x = Dense(number_of_actions, name="q-values", kernel_initializer='zeros', activation='linear')(x)
+    model = Model(inputs=[state_input], outputs=[x], name=name)
 
-    #  model.compile(optimizer=SGD(lr=0.005, momentum=0.95, decay=0., nesterov=True), loss=mse)
-    model.compile(optimizer='nadam', loss=mse)
-    #model.compile(optimizer='adam', loss=mse)
+    model.compile(optimizer=SGD(lr=0.002, momentum=0.95, decay=0., nesterov=True), loss=mse)
 
     model.summary()
     return model
@@ -66,15 +58,6 @@ class Strategy:
 
     def play(self, state):
         pass
-
-
-class RandomStrategy(Strategy):
-
-    def __init__(self, environment):
-        super().__init__(environment)
-
-    def play(self, state):
-        return self.environment.action_space.sample()
 
 
 class ReplayMemory:
@@ -168,19 +151,26 @@ class DQL(Strategy):
 
     def __init__(self, environment, gamma=0.99,
                  batch_size=64, replay_memory_size=25600, history_size=5120,
-                 switch_network_episode=5, input_shape=None, action_space=[]):
+                 switch_network_episode=5, input_shape=None, number_of_actions=0):
         super().__init__(environment)
+
         if input_shape:
             self.input_shape = input_shape
+        else:
+            self.input_shape = environment.observation_space.shape
 
-        self.main_dqn = dqn_init(self.input_shape, environment.action_space.shape, name="Main DQN")
-        self.exploration_dqn = dqn_init(self.input_shape, environment.action_space.shape,
-                                        name="Exploration DQN (episode 0)")
+        if number_of_actions:
+            self.number_of_actions = number_of_actions
+        else:
+            n = self.environment.action_space.shape[0]
+            self.number_of_actions = len(get_all_actions(n, environment))
+
+        self.main_dqn = dqn_init(self.input_shape, self.number_of_actions, name="Main DQN")
+        self.exploration_dqn = dqn_init(self.input_shape, self.number_of_actions, name="Exploration DQN (episode 0)")
         self.__random_exploration_phase = True
         self.__weights_loaded = False
 
         if os.path.isfile(CHECKPOINT_PATH):
-            #  self.__random_exploration_phase = False
             self.main_dqn.load_weights(CHECKPOINT_PATH)
             self.exploration_dqn.load_weights(CHECKPOINT_PATH)
             self.__weights_loaded = True
@@ -195,52 +185,24 @@ class DQL(Strategy):
         self.replay_memory = ReplayMemory(replay_memory_size)
         self.gamma = gamma  # discount factor
 
-        n = self.environment.action_space.shape[0]
-        if len(action_space):
-            self.action_space = action_space
-        else:
-            self.action_space = get_all_actions(n, environment)
-
     def play(self, state, exploration=True):
 
-        if not exploration:  # TODO: softmax for best Q-values
-            return self.action_space[
-                np.argmax(
-                    [ target[0] for target in self.main_dqn.predict(
-                        {'state': pre_process_input_state([state] * len(self.action_space)),
-                         'action': self.action_space}
-                        )
-                    ]
-                )
-            ]
+        if not exploration:
+            return np.argmax(
+                self.main_dqn.predict(pre_process_input_state([state]))[0]
+            )
         elif self.__random_exploration_phase and not self.__weights_loaded:
-            return self.action_space[random.randint(0, self.action_space.shape[0] - 1)]
+            return random.randint(0, self.number_of_actions - 1)
 
         else:
-            #  for action in self.action_space:
-            #      print("--"*20)
-            #      print("ACTION: {}".format(action))
-            #      print("Q-VALUE: {}".format(self.exploration_dqn.predict(
-            #              {'state': pre_process_input_state([state]),
-            #               'action': np.array([action])})))
-            #      print("--"*20)
-            return self.action_space[
-                np.argmax(
-                    [ target[0] for target in self.exploration_dqn.predict(
-                        {'state': pre_process_input_state([state] * len(self.action_space)),
-                         'action': self.action_space}
-                        )
-                    ]
-                )
-            ]
+            return np.argmax(
+                self.exploration_dqn.predict(pre_process_input_state([state]))[0]
+            )
 
     def update(self, state, action, reward, next_state, done=False):
-        self.replay_memory.append((state, action, reward, next_state))
+        self.replay_memory.append((state, action, reward, next_state, done))
 
         self.__iteration += 1
-
-        if done and LOGS:
-            print("\nIteration {}, replay memory size={}".format(self.__iteration, self.replay_memory.length))
 
         if self.__random_exploration_phase:
             self.__iteration %= self.replay_memory.maxlen
@@ -261,72 +223,45 @@ class DQL(Strategy):
             self.fit_main_dqn()
 
     def fit_main_dqn(self):
-
-        n = self.history_size
-        observations = [[], [], [], []]  # state, action, reward, next_state
-        for memory in self.replay_memory.sample(n):
-            for i, value in enumerate(memory):
-                observations[i].append(value)
-                if value is None:
-                    print("\n**** WARNING: NONE VALUE FOUND ****\n")
-                    print("#"*20)
-                    print(memory)
-                    print("#"*20)
-                    print("\n")
-        observations = [np.array(col) for col in observations]
-        states, actions, rewards, next_states = \
-            pre_process_input_state(observations[0]), observations[1], \
-            observations[2], pre_process_input_state(observations[3])
-        q_values = np.empty(shape=(len(states),), dtype='float')
-        for i in range(q_values.size):
-            values_next_state = np.amax(self.exploration_dqn.predict(
-                        {'state': np.array([next_states[i]] * len(self.action_space)),
-                        'action': self.action_space}
-                        )
-            )
-            #  q(states[i], actions[i]) of the current observation i
-            q_values[i] = rewards[i] + self.gamma * values_next_state
-
         if LOGS:
             print("Fit critical deep q-network...")
-        self.main_dqn.fit({'state': states, 'action': actions}, {'q-values': q_values},
-                          epochs=1, batch_size=self.batch_size, callbacks=CALLBACKS)
-        #self.main_dqn.train_on_batch({'state': states, 'action': actions}, {'q-values': q_values},
-        #                  callbacks=CALLBACKS)
+        self.main_dqn.fit_generator(self.q_generator(),
+                                    steps_per_epoch=(self.history_size // self.batch_size),
+                                    callbacks=CALLBACKS)
 
     def q_generator(self):
         while True:
             n = self.history_size
             states_shape = [n] + list(self.input_shape)
-            actions_shape = [n] + list(self.action_space.shape)
-            observations = [np.empty(shape=states_shape, dtype='uint8'),  # state
-                            np.empty(shape=actions_shape, dtype='?'),  # action
-                            np.empty(shape=n, dtype='float'),  # reward
-                            np.empty(shape=states_shape, dtype='uint8')  # next_state
-                            ]
+            observations = [
+                np.empty(shape=states_shape, dtype='uint8'),  # state
+                np.empty(shape=n, dtype='uint8'),  # action
+                np.empty(shape=n, dtype='float'),  # reward
+                np.empty(shape=states_shape, dtype='uint8'),  # next_state
+                np.empty(shape=n, dtype='?')  # done
+            ]
             for j, memory in enumerate(self.replay_memory.sample(n)):
                 for i, value in enumerate(memory):
                     observations[i][j] = value
-            observations = [np.array(col) for col in observations]
             states = observations[0]
             actions = observations[1]
             rewards = observations[2]
             next_states = observations[3]
-            epochs = n // self.batch_size
+            done = observations[4]
+            steps = n // self.batch_size
             index = lambda x, y: x * self.batch_size + y
-            for i in range(epochs):
-                q_values = np.empty(shape=self.batch_size, dtype='float')
+            for i in range(steps):
+                q_values = np.empty(shape=(self.batch_size, self.number_of_actions), dtype='float')
                 for j in range(self.batch_size):
-                    successor = pre_process_input_state(
-                        [next_states[index(i, j)] * len(self.action_space)]
-                    )
-                    values_next_state = np.max(
-                        self.exploration_dqn.predict(
-                            {'state': successor,
-                             'action': self.action_space}
-                        )
-                    )
-                    q_values[j] = rewards[index(i, j)] + self.gamma * values_next_state
-                yield {'state': pre_process_input_state(states[index(i, 0): index(i + 1, 0)]),
-                       'action': actions[index(i, 0): index(i + 1, 0)]
-                       }, {'q-values': q_values}
+                    action = actions[index(i, j)]
+                    current_state = pre_process_input_state([states[index(i, j)]])
+                    successor = pre_process_input_state([next_states[index(i, j)]])
+                    with graph.as_default():  # correct some synchronisation issues
+                        q_values[j] = self.exploration_dqn.predict(current_state)[0]
+                        if not done[index(i, j)]:
+                            successor_q_values = self.exploration_dqn.predict(successor)[0]
+                            q_values[j][action] = rewards[index(i, j)] + self.gamma * np.amax(successor_q_values)
+                        else:
+                            q_values[j][action] = rewards[index(i, j)]
+
+                yield states[i * self.batch_size: (i + 1) * self.batch_size], q_values
