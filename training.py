@@ -138,7 +138,7 @@ if __name__ == '__main__':
                 if reward < 0:
                     print('t=%i got penalty: %g, total reward: %g' % (t, -reward, total_reward))
                 if done:
-                    epsilon *= 0.992  # decay epsilon at each episode
+                    epsilon *= 0.996  # decay epsilon at each episode
                     print("epsilon={} -- probability to force RIGHT: {}".format(epsilon, 0.65 * epsilon**2))
                     env.render()
                     try:

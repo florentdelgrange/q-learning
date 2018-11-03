@@ -12,7 +12,7 @@ import numpy as np
 
 LOGS = True
 CHECKPOINT_PATH = './models/model_checkpoint.hdf5'
-CHECKPOINT = ModelCheckpoint(CHECKPOINT_PATH, monitor='mse', verbose=1, save_best_only=True, mode='min')
+CHECKPOINT = ModelCheckpoint(CHECKPOINT_PATH, verbose=1, save_best_only=False)
 CALLBACKS = [CHECKPOINT]
 
 
@@ -41,14 +41,16 @@ def dqn_init(state_input_shape, action_input_shape, name="Deep-Q-Network"):
     x = Conv2D(32, (3, 3), activation='relu')(x)
     x = AveragePooling2D(pool_size=(2, 2))(x)
     x = Flatten()(x)
-    x = concatenate([x, action_input])
+    x = Dense(256, activation='relu')(x)
+    y = Dense(256, activation='relu')(action_input)
+    x = concatenate([x, y])
     x = Dense(128, activation='relu')(x)
-    x = Dense(1, kernel_initializer='zeros', name="q-values")(x)
-    model = Model(inputs=[state_input, action_input], outputs=[x], name=name)
+    x = Dense(1, name="q-values", kernel_initializer='zeros', activation='linear')(x)
+    model = Model(inputs=[state_input, action_input], outputs=[x],name=name)
 
     #  model.compile(optimizer=SGD(lr=0.005, momentum=0.95, decay=0., nesterov=True), loss=mse)
-    #  model.compile(optimizer='nadam', loss=mse)
-    model.compile(optimizer='adam', loss=mse)
+    model.compile(optimizer='nadam', loss=mse)
+    #model.compile(optimizer='adam', loss=mse)
 
     model.summary()
     return model
@@ -166,7 +168,7 @@ class DQL(Strategy):
 
     def __init__(self, environment, gamma=0.99,
                  batch_size=64, replay_memory_size=25600, history_size=5120,
-                 switch_network_episode=8, input_shape=None, action_space=[]):
+                 switch_network_episode=5, input_shape=None, action_space=[]):
         super().__init__(environment)
         if input_shape:
             self.input_shape = input_shape
@@ -204,22 +206,31 @@ class DQL(Strategy):
         if not exploration:  # TODO: softmax for best Q-values
             return self.action_space[
                 np.argmax(
-                    self.main_dqn.predict(
+                    [ target[0] for target in self.main_dqn.predict(
                         {'state': pre_process_input_state([state] * len(self.action_space)),
-                         'action': pre_process_input_action(self.action_space)}
-                    )
+                         'action': self.action_space}
+                        )
+                    ]
                 )
             ]
         elif self.__random_exploration_phase and not self.__weights_loaded:
             return self.action_space[random.randint(0, self.action_space.shape[0] - 1)]
 
         else:
+            #  for action in self.action_space:
+            #      print("--"*20)
+            #      print("ACTION: {}".format(action))
+            #      print("Q-VALUE: {}".format(self.exploration_dqn.predict(
+            #              {'state': pre_process_input_state([state]),
+            #               'action': np.array([action])})))
+            #      print("--"*20)
             return self.action_space[
                 np.argmax(
-                    self.exploration_dqn.predict(
+                    [ target[0] for target in self.exploration_dqn.predict(
                         {'state': pre_process_input_state([state] * len(self.action_space)),
-                         'action': pre_process_input_action(self.action_space)}
-                    )
+                         'action': self.action_space}
+                        )
+                    ]
                 )
             ]
 
@@ -256,17 +267,22 @@ class DQL(Strategy):
         for memory in self.replay_memory.sample(n):
             for i, value in enumerate(memory):
                 observations[i].append(value)
+                if value is None:
+                    print("\n**** WARNING: NONE VALUE FOUND ****\n")
+                    print("#"*20)
+                    print(memory)
+                    print("#"*20)
+                    print("\n")
         observations = [np.array(col) for col in observations]
         states, actions, rewards, next_states = \
-            pre_process_input_state(observations[0]), pre_process_input_action(observations[1]), \
+            pre_process_input_state(observations[0]), observations[1], \
             observations[2], pre_process_input_state(observations[3])
         q_values = np.empty(shape=(len(states),), dtype='float')
         for i in range(q_values.size):
-            values_next_state = np.max(
-                self.exploration_dqn.predict(
-                    {'state': np.array([next_states[i] * len(self.action_space)]),
-                     'action': pre_process_input_action(self.action_space)}
-                )
+            values_next_state = np.amax(self.exploration_dqn.predict(
+                        {'state': np.array([next_states[i]] * len(self.action_space)),
+                        'action': self.action_space}
+                        )
             )
             #  q(states[i], actions[i]) of the current observation i
             q_values[i] = rewards[i] + self.gamma * values_next_state
@@ -275,6 +291,8 @@ class DQL(Strategy):
             print("Fit critical deep q-network...")
         self.main_dqn.fit({'state': states, 'action': actions}, {'q-values': q_values},
                           epochs=1, batch_size=self.batch_size, callbacks=CALLBACKS)
+        #self.main_dqn.train_on_batch({'state': states, 'action': actions}, {'q-values': q_values},
+        #                  callbacks=CALLBACKS)
 
     def q_generator(self):
         while True:
@@ -305,10 +323,10 @@ class DQL(Strategy):
                     values_next_state = np.max(
                         self.exploration_dqn.predict(
                             {'state': successor,
-                             'action': pre_process_input_action(self.action_space)}
+                             'action': self.action_space}
                         )
                     )
                     q_values[j] = rewards[index(i, j)] + self.gamma * values_next_state
                 yield {'state': pre_process_input_state(states[index(i, 0): index(i + 1, 0)]),
-                       'action': pre_process_input_action(actions[index(i, 0): index(i + 1, 0)])
+                       'action': actions[index(i, 0): index(i + 1, 0)]
                        }, {'q-values': q_values}
