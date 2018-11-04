@@ -14,7 +14,6 @@ import numpy as np
 global graph
 graph = tf.get_default_graph()
 
-LOGS = True
 CHECKPOINT_PATH = './models/model_checkpoint.hdf5'
 CHECKPOINT = ModelCheckpoint(CHECKPOINT_PATH, verbose=1, save_best_only=False)
 CALLBACKS = [CHECKPOINT]
@@ -42,7 +41,8 @@ def dqn_init(state_input_shape, number_of_actions, name="Deep-Q-Network"):
     x = Dense(number_of_actions, name="q-values", kernel_initializer='zeros', activation='linear')(x)
     model = Model(inputs=[state_input], outputs=[x], name=name)
 
-    model.compile(optimizer=SGD(lr=0.002, momentum=0.95, decay=0., nesterov=True), loss=mse)
+    #   model.compile(optimizer=SGD(lr=0.002, momentum=0.95, decay=0., nesterov=True), loss=mse)
+    model.compile(optimizer='nadam', loss=mse)
 
     model.summary()
     return model
@@ -58,6 +58,10 @@ class Strategy:
 
     def play(self, state):
         pass
+
+    @property
+    def logs(self):
+        return ""
 
 
 class ReplayMemory:
@@ -150,9 +154,11 @@ def get_all_actions(n, env):
 class DQL(Strategy):
 
     def __init__(self, environment, gamma=0.99,
-                 batch_size=64, replay_memory_size=25600, history_size=5120,
+                 batch_size=64, replay_memory_size=51200, history_size=12800,
                  switch_network_episode=5, input_shape=None, number_of_actions=0):
         super().__init__(environment)
+
+        self.__logs = ''  # gather logs during each iteration
 
         if input_shape:
             self.input_shape = input_shape
@@ -174,8 +180,7 @@ class DQL(Strategy):
             self.main_dqn.load_weights(CHECKPOINT_PATH)
             self.exploration_dqn.load_weights(CHECKPOINT_PATH)
             self.__weights_loaded = True
-            if LOGS:
-                print("{}: weights loaded".format(CHECKPOINT_PATH))
+            self.__logs += "{}: weights loaded ".format(CHECKPOINT_PATH)
 
         self.__iteration = 0
         self.__episode = 1
@@ -199,6 +204,12 @@ class DQL(Strategy):
                 self.exploration_dqn.predict(pre_process_input_state([state]))[0]
             )
 
+    def get_q_values(self, state, exploration=True):
+        if exploration:
+            return self.exploration_dqn.predict(pre_process_input_state([state]))[0]
+        else:
+            return self.main_dqn.predict(pre_process_input_state([state]))[0]
+
     def update(self, state, action, reward, next_state, done=False):
         self.replay_memory.append((state, action, reward, next_state, done))
 
@@ -211,20 +222,20 @@ class DQL(Strategy):
 
         if done and not self.__random_exploration_phase:
             self.__episode += 1
-            if LOGS:
-                print("Episode {}".format(self.__episode))
+            self.__logs += "Episode {} ".format(self.__episode)
             if not self.__episode % self.switch_network_episode:
-                if LOGS:
-                    print("Episode {}: exploration DQN <- copy of main DQN...".format(self.__episode))
+                self.__logs += ": exploration DQN <- copy of main DQN... ".format(self.__episode)
                 self.exploration_dqn.set_weights(self.main_dqn.get_weights())
 
         if not self.__iteration:
-            self.__random_exploration_phase = False
+            if self.__random_exploration_phase:
+                self.__random_exploration_phase = False
+                self.__logs += ": exploration DQN <- copy of main DQN... ".format(self.__episode)
+                self.exploration_dqn.set_weights(self.main_dqn.get_weights())
             self.fit_main_dqn()
 
     def fit_main_dqn(self):
-        if LOGS:
-            print("Fit critical deep q-network...")
+        print("Fit critical deep q-network...")
         self.main_dqn.fit_generator(self.q_generator(),
                                     steps_per_epoch=(self.history_size // self.batch_size),
                                     callbacks=CALLBACKS)
@@ -265,3 +276,9 @@ class DQL(Strategy):
                             q_values[j][action] = rewards[index(i, j)]
 
                 yield states[i * self.batch_size: (i + 1) * self.batch_size], q_values
+
+    @property
+    def logs(self):
+        logs = self.__logs
+        self.__logs = ""
+        return logs

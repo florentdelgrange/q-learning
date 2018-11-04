@@ -17,6 +17,7 @@ import numpy as np
 import retro
 from keras.utils import to_categorical
 from docopt import docopt
+import sys
 
 from PIL import Image
 
@@ -42,24 +43,79 @@ meaningful_actions = np.array([
     [1., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 0.],  # Y + B + LEFT (accelerate LEFT and jump)
     [0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 0.],  # Y + LEFT (accelerate LEFT)
     [0., 1., 0., 0., 0., 1., 1., 0., 0., 0., 0., 0.],  # Y + LEFT (accelerate LEFT and DOWN)
-    [0., 1., 0., 0., 0., 0., 1., 0., 1., 0., 0., 0.]   # Y + A + LEFT (accelerate LEFT and spin jump)
+    [0., 1., 0., 0., 0., 0., 1., 0., 1., 0., 0., 0.]  # Y + A + LEFT (accelerate LEFT and spin jump)
 
 ], dtype='?')  # meaningful actions for SuperMarioWorld
 
+action_meaning = [
+    "B button",
+    "Y button",
+    "UP button",
+    "DOWN button",
+    "LEFT button",
+    "RIGHT button",
+    "DOWN button + RIGHT",
+    "DOWN button + LEFT",
+    "A button",
+    "Y + B + RIGHT",
+    "Y + RIGHT",
+    "Y + RIGHT + DOWN",
+    "Y + A + RIGHT",
+    "Y + B + LEFT",
+    "Y + LEFT",
+    "Y + LEFT + DOWN",
+    "Y + A + LEFT"
+]
 
-def custom_epsilon_greedy(strategy, epsilon, state, current_sum=0):
+align = lambda x: x if len(x) == 2 else x + " "
+space = lambda x: " " * 8 if x >= 0 else " " * 7
+
+global current_LOGS
+current_LOGS = ""
+ERASE_LINE = '\x1b[2K'
+CURSOR_UP_ONE = '\x1b[1A'
+
+
+def softmax(x):
+    """Compute softmax values for each sets of scores in x."""
+    e_x = np.exp(x - np.max(x))
+    return e_x / e_x.sum(axis=0)  # only difference
+
+
+def custom_epsilon_greedy(strategy, epsilon, state):
     p = random.random()
     if p < epsilon:
         p = random.random()
-        if p < 0.65 * epsilon and current_sum > -200 and epsilon > 0.85:
-            if p <= 0.65 * epsilon / 2:
+        if p < 0.65 and epsilon >= 1:
+            if p <= 0.65 / 2:
                 return 10  # Y + RIGHT (accelerate RIGHT)
             else:
                 return 9  # Y + B + RIGHT (accelerate RIGHT and jump)
         else:
             return random.randint(0, meaningful_actions.shape[0] - 1)
     else:
-        return strategy.play(state)
+        q_values = strategy.get_q_values(state)
+        best_action = np.argmax(q_values)
+        # choose best actions w.r.t q-values
+        best_actions = np.array(range(len(q_values)))[(q_values / q_values.max()) >= 0.7]
+        # choose best q-values
+        best_q_values = q_values[(q_values / q_values.max()) >= 0.7]
+        proba = softmax(best_q_values)
+        proba_on_q_values = np.zeros(shape=len(q_values))
+        for i, a in enumerate(best_actions):
+            proba_on_q_values[a] = best_q_values[i]
+
+        logs = 4 * " " + "Q-values" + 8 * " " + "Softmax" + 7 * " " + "action meaning\n"
+        logs += "\n".join(
+            [align(str(i)) + ": " + "{:.6f}".format(x) + space(x) + "{:.4f}".format(proba_on_q_values[i]) + " " * 8 +
+             action_meaning[i] for i, x in enumerate(q_values)]
+        )
+        #  softmax choice
+        choice = np.random.choice(best_actions, 1, p=proba)[0]
+        logs += "\nBest Action: {} | Action chosen: {}\n".format(best_action, choice)
+        global current_LOGS
+        current_LOGS = logs
+        return choice
 
 
 def pre_process(observation):
@@ -78,13 +134,18 @@ def show_all_actions_meaning(env):
         print(" ")
 
 
-def liveness(action, reward):
-    return reward if (meaningful_actions[action][7] or reward) else -0.025
+def liveness(reward):
+    return reward if reward else -0.025
 
 
 if __name__ == '__main__':
 
     args = docopt(__doc__)
+    states_init = "             Forest1\
+        Bridges2      \
+        ChocolateIsland3  Forest5\
+        DonutPlains1      Start             \
+        DonutPlains2".split()
     states = "Bridges1          Forest2           YoshiIsland2\
         Bridges2          Forest3           YoshiIsland3\
         ChocolateIsland1  Forest4           YoshiIsland4\
@@ -99,15 +160,19 @@ if __name__ == '__main__':
     t = 0
     epsilon = float(args['--epsilon'])
     strategy = None
+    init_iterations = 20
+    status = ""
 
     try:
         while True:
-            state = states[random.randint(0, len(states) - 1)]
-            print("State {} loaded.".format(state))
-            if t:
-                env.load_state(state)
+            if init_iterations:
+                emulator_state = states_init[random.randint(0, len(states_init) - 1)]
             else:
-                env = retro.make("SuperMarioWorld-Snes", state, scenario='scenario2')
+                emulator_state = states[random.randint(0, len(states) - 1)]
+            if t:
+                env.load_state(emulator_state)
+            else:
+                env = retro.make("SuperMarioWorld-Snes", emulator_state, scenario='scenario2')
                 #  show_all_actions_meaning(env)
             next_state = env.reset()
             input_shape = pre_process(next_state).shape
@@ -115,33 +180,43 @@ if __name__ == '__main__':
             total_reward = 0
             if not strategy:
                 strategy = DQL(env, number_of_actions=len(meaningful_actions), input_shape=input_shape)
+                custom_epsilon_greedy(strategy, 0, pre_process(next_state))
             else:
                 strategy.environment = env
             while True:
                 state = env.get_screen()
                 state = pre_process(state)
 
-                action = custom_epsilon_greedy(strategy, epsilon, state, total_reward)
+                action = custom_epsilon_greedy(strategy, epsilon, state)
 
                 next_state, reward, done, info = env.step(meaningful_actions[action])
                 next_state = pre_process(next_state)
-                strategy.update(state, action, liveness(action, reward), next_state, done)
+                strategy.update(state, action, liveness(reward), next_state, done)
                 t += 1
                 if t % 10 == 0:
                     env.render()
+                    for _ in range(7 + len(meaningful_actions)):
+                        sys.stdout.write(CURSOR_UP_ONE)
+                        sys.stdout.write(ERASE_LINE)
+                    strategy_logs = strategy.logs
+                    status = strategy_logs if strategy_logs else status
+                    sys.stdout.write("Emulator state: {}\n".format(emulator_state))
+                    sys.stdout.write("Status: {}\n".format(status))
+                    sys.stdout.write("ε={}\n".format(epsilon))
+                    sys.stdout.write("current score={}\n".format(total_reward))
+                    sys.stdout.write(current_LOGS)
+                    sys.stdout.flush()
                 if not t % 100:
                     plt.imsave("last_state.png", np.array(np.squeeze(state)))
-                total_reward += liveness(action, reward)
-                if reward > 0:
-                    print('t=%i got reward: %g, total reward: %g' % (t, reward, total_reward))
-                if reward < 0:
-                    print('t=%i got penalty: %g, total reward: %g' % (t, -reward, total_reward))
+                total_reward += liveness(reward)
                 if done:
-                    epsilon *= 0.996  # decay epsilon at each episode
-                    print("ε={}".format(epsilon))
+                    if not init_iterations:
+                        epsilon *= 0.995  # decay epsilon at each episode
+                    else:
+                        init_iterations -= 1
                     env.render()
                     try:
-                        print("done! time=%i, reward=%d" % (t, total_reward))
+                        status = "done! time=%i, reward=%d" % (t, total_reward)
                         print()
                     except EOFError:
                         exit(0)
