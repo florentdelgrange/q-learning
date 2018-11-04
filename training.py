@@ -19,8 +19,6 @@ from keras.utils import to_categorical
 from docopt import docopt
 import sys
 
-from PIL import Image
-
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -82,7 +80,7 @@ def softmax(x):
     return e_x / e_x.sum(axis=0)  # only difference
 
 
-def custom_epsilon_greedy(strategy, epsilon, state):
+def custom_epsilon_greedy(strategy, epsilon, state, max_ratio=0.55):
     p = random.random()
     if p < epsilon:
         p = random.random()
@@ -97,13 +95,13 @@ def custom_epsilon_greedy(strategy, epsilon, state):
         q_values = strategy.get_q_values(state)
         best_action = np.argmax(q_values)
         # choose best actions w.r.t q-values
-        best_actions = np.array(range(len(q_values)))[(q_values / q_values.max()) >= 0.7]
+        best_actions = np.array(range(len(q_values)))[(q_values / q_values.max()) >= max_ratio]
         # choose best q-values
-        best_q_values = q_values[(q_values / q_values.max()) >= 0.7]
+        best_q_values = q_values[(q_values / q_values.max()) >= max_ratio]
         proba = softmax(best_q_values)
         proba_on_q_values = np.zeros(shape=len(q_values))
         for i, a in enumerate(best_actions):
-            proba_on_q_values[a] = best_q_values[i]
+            proba_on_q_values[a] = proba[i]
 
         logs = 4 * " " + "Q-values" + 8 * " " + "Softmax" + 7 * " " + "action meaning\n"
         logs += "\n".join(
@@ -112,10 +110,15 @@ def custom_epsilon_greedy(strategy, epsilon, state):
         )
         #  softmax choice
         choice = np.random.choice(best_actions, 1, p=proba)[0]
-        logs += "\nBest Action: {} | Action chosen: {}\n".format(best_action, choice)
         global current_LOGS
-        current_LOGS = logs
-        return choice
+        if epsilon > 0.5:
+            logs += "\nBest Action: {}\n".format(best_action)
+            current_LOGS = logs
+            return best_action
+        else:
+            logs += "\nBest Action: {} | Action chosen: {}\n".format(best_action, choice)
+            current_LOGS = logs
+            return choice
 
 
 def pre_process(observation):
@@ -211,7 +214,7 @@ if __name__ == '__main__':
                 total_reward += liveness(reward)
                 if done:
                     if not init_iterations:
-                        epsilon *= 0.995  # decay epsilon at each episode
+                        epsilon *= 0.996  # decay epsilon at each episode
                     else:
                         init_iterations -= 1
                     env.render()
