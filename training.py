@@ -84,8 +84,8 @@ def custom_epsilon_greedy(strategy, epsilon, state, max_ratio=0.55):
     p = random.random()
     if p < epsilon:
         p = random.random()
-        if p < 0.65 and epsilon >= 1:
-            if p <= 0.65 / 2:
+        if p < 0.65 and epsilon >= 0.7:
+            if p <= 0.65 * epsilon / 2:
                 return 10  # Y + RIGHT (accelerate RIGHT)
             else:
                 return 9  # Y + B + RIGHT (accelerate RIGHT and jump)
@@ -94,14 +94,17 @@ def custom_epsilon_greedy(strategy, epsilon, state, max_ratio=0.55):
     else:
         q_values = strategy.get_q_values(state)
         best_action = np.argmax(q_values)
-        # choose best actions w.r.t q-values
-        best_actions = np.array(range(len(q_values)))[(q_values / q_values.max()) >= max_ratio]
-        # choose best q-values
-        best_q_values = q_values[(q_values / q_values.max()) >= max_ratio]
-        proba = softmax(best_q_values)
-        proba_on_q_values = np.zeros(shape=len(q_values))
-        for i, a in enumerate(best_actions):
-            proba_on_q_values[a] = proba[i]
+        if not q_values.max():
+            proba_on_q_values = np.ones(len(q_values)) / len(q_values)
+        else:
+            # choose best actions w.r.t q-values
+            best_actions = np.array(range(len(q_values)))[(q_values / q_values.max()) >= max_ratio]
+            # choose best q-values
+            best_q_values = q_values[(q_values / q_values.max()) >= max_ratio]
+            proba = softmax(best_q_values)
+            proba_on_q_values = np.zeros(shape=len(q_values))
+            for i, a in enumerate(best_actions):
+                proba_on_q_values[a] = proba[i]
 
         logs = 4 * " " + "Q-values" + 8 * " " + "Softmax" + 7 * " " + "action meaning\n"
         logs += "\n".join(
@@ -109,13 +112,13 @@ def custom_epsilon_greedy(strategy, epsilon, state, max_ratio=0.55):
              action_meaning[i] for i, x in enumerate(q_values)]
         )
         #  softmax choice
-        choice = np.random.choice(best_actions, 1, p=proba)[0]
         global current_LOGS
-        if epsilon > 0.5:
+        if epsilon > 0.5 or not q_values.max():
             logs += "\nBest Action: {}\n".format(best_action)
             current_LOGS = logs
             return best_action
         else:
+            choice = np.random.choice(best_actions, 1, p=proba)[0]
             logs += "\nBest Action: {} | Action chosen: {}\n".format(best_action, choice)
             current_LOGS = logs
             return choice
@@ -137,8 +140,8 @@ def show_all_actions_meaning(env):
         print(" ")
 
 
-def liveness(reward):
-    return reward if reward else -0.025
+def liveness(reward, action):
+    return reward if reward or action[7] else -0.0125
 
 
 if __name__ == '__main__':
@@ -160,10 +163,11 @@ if __name__ == '__main__':
         DonutPlains4      VanillaDome4      \
         DonutPlains5      VanillaDome5      \
         Forest1           YoshiIsland1".split()
+    states = states_init
     t = 0
     epsilon = float(args['--epsilon'])
     strategy = None
-    init_iterations = 20
+    init_iterations = 30
     status = ""
 
     try:
@@ -194,7 +198,7 @@ if __name__ == '__main__':
 
                 next_state, reward, done, info = env.step(meaningful_actions[action])
                 next_state = pre_process(next_state)
-                strategy.update(state, action, liveness(reward), next_state, done)
+                strategy.update(state, action, liveness(reward, meaningful_actions[action]), next_state, done)
                 t += 1
                 if t % 10 == 0:
                     env.render()
@@ -211,10 +215,10 @@ if __name__ == '__main__':
                     sys.stdout.flush()
                 if not t % 100:
                     plt.imsave("last_state.png", np.array(np.squeeze(state)))
-                total_reward += liveness(reward)
+                total_reward += liveness(reward, meaningful_actions[action])
                 if done:
                     if not init_iterations:
-                        epsilon *= 0.996  # decay epsilon at each episode
+                        epsilon *= 0.994  # decay epsilon at each episode
                     else:
                         init_iterations -= 1
                     env.render()
