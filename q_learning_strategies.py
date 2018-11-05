@@ -29,12 +29,11 @@ def pre_process_input_state(s):
 
 def dqn_init(state_input_shape, number_of_actions, name="Deep-Q-Network"):
     state_input = Input(shape=state_input_shape, name="state")
-    x = Conv2D(16, kernel_size=(5, 5), strides=(1, 1),
-               activation='relu',
+    x = Conv2D(16, kernel_size=(3, 3), activation='relu',
                input_shape=state_input_shape)(state_input)
-    x = AveragePooling2D(pool_size=(2, 2), strides=(2, 2))(x)
+    x = MaxPooling2D(pool_size=(2, 2))(x)
     x = Conv2D(32, (3, 3), activation='relu')(x)
-    x = AveragePooling2D(pool_size=(2, 2))(x)
+    x = MaxPooling2D(pool_size=(2, 2))(x)
     x = Flatten()(x)
     x = Dense(192, activation='relu')(x)
     x = Dense(128, activation='relu')(x)
