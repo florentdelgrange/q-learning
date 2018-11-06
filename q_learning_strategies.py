@@ -5,7 +5,7 @@ import tensorflow as tf
 from keras import Input, Model
 from keras.callbacks import ModelCheckpoint
 from keras.losses import mse
-from keras.optimizers import SGD
+from keras.optimizers import SGD, RMSprop
 
 from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, GlobalAveragePooling2D, Dropout, Activation, concatenate, \
     AveragePooling2D
@@ -41,7 +41,8 @@ def dqn_init(state_input_shape, number_of_actions, name="Deep-Q-Network"):
     model = Model(inputs=[state_input], outputs=[x], name=name)
 
     #   model.compile(optimizer=SGD(lr=0.002, momentum=0.95, decay=0., nesterov=True), loss=mse)
-    model.compile(optimizer='nadam', loss=mse)
+    #   model.compile(optimizer='nadam', loss=mse)
+    model.compile(optimizer=RMSprop(lr=0.00025, rho=0.95, epsilon=0.01), loss=mse)
 
     model.summary()
     return model
@@ -154,7 +155,7 @@ class DQL(Strategy):
 
     def __init__(self, environment, gamma=0.99,
                  batch_size=64, replay_memory_size=51200, history_size=12800,
-                 switch_network_episode=5, input_shape=None, number_of_actions=0):
+                 switch_network_episode=30, input_shape=None, number_of_actions=0):
         super().__init__(environment)
 
         self.__logs = ''  # gather logs during each iteration
