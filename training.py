@@ -20,9 +20,8 @@ from docopt import docopt
 import sys
 
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 
-from q_learning_strategies import DQL
+from q_learning_strategies import DQLStrategy
 
 meaningful_actions = np.array([
     [1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],  # B button (normal jump)
@@ -34,6 +33,8 @@ meaningful_actions = np.array([
     [0., 0., 0., 0., 0., 1., 0., 1., 0., 0., 0., 0.],  # DOWN button + RIGHT
     [0., 0., 0., 0., 0., 1., 1., 0., 0., 0., 0., 0.],  # DOWN button + LEFT
     [0., 0., 0., 0., 0., 0., 0., 0., 1., 0., 0., 0.],  # A button (spin jump)
+    [1., 0., 0., 0., 1., 0., 0., 0., 0., 0., 0., 0.],  # UP + B button (leave water)
+    [0., 0., 0., 0., 1., 0., 0., 0., 1., 0., 0., 0.],  # UP + A button (leave water)
     [1., 1., 0., 0., 0., 0., 0., 1., 0., 0., 0., 0.],  # Y + B + RIGHT (accelerate RIGHT and jump)
     [0., 1., 0., 0., 0., 0., 0., 1., 0., 0., 0., 0.],  # Y + RIGHT (accelerate RIGHT)
     [0., 1., 0., 0., 0., 1., 0., 1., 0., 0., 0., 0.],  # Y + RIGHT + DOWN (accelerate RIGHT and DOWN)
@@ -41,8 +42,9 @@ meaningful_actions = np.array([
     [1., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 0.],  # Y + B + LEFT (accelerate LEFT and jump)
     [0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 0.],  # Y + LEFT (accelerate LEFT)
     [0., 1., 0., 0., 0., 1., 1., 0., 0., 0., 0., 0.],  # Y + LEFT (accelerate LEFT and DOWN)
-    [0., 1., 0., 0., 0., 0., 1., 0., 1., 0., 0., 0.]  # Y + A + LEFT (accelerate LEFT and spin jump)
-
+    [0., 1., 0., 0., 0., 0., 1., 0., 1., 0., 0., 0.],  # Y + A + LEFT (accelerate LEFT and spin jump)
+    [1., 0., 0., 0., 0., 0., 0., 1., 0., 0., 0., 0.],  # B button + RIGHT
+    [1., 0., 0., 0., 0., 0., 1., 0., 0., 0., 0., 0.]   # B button + LEFT
 ], dtype='?')  # meaningful actions for SuperMarioWorld
 
 action_meaning = [
@@ -55,6 +57,8 @@ action_meaning = [
     "DOWN button + RIGHT",
     "DOWN button + LEFT",
     "A button",
+    "UP + B button",
+    "UP + A button",
     "Y + B + RIGHT",
     "Y + RIGHT",
     "Y + RIGHT + DOWN",
@@ -62,16 +66,17 @@ action_meaning = [
     "Y + B + LEFT",
     "Y + LEFT",
     "Y + LEFT + DOWN",
-    "Y + A + LEFT"
+    "Y + A + LEFT",
+    "B + RIGHT",
+    "B + LEFT"
 ]
 
 align = lambda x: x if len(x) == 2 else x + " "
-space = lambda x: " " * 8 if x >= 0 else " " * 7
 
-global current_LOGS
 current_LOGS = ""
 ERASE_LINE = '\x1b[2K'
 CURSOR_UP_ONE = '\x1b[1A'
+TEMPORAL_MEMORY = 4
 
 
 def softmax(x):
@@ -80,43 +85,59 @@ def softmax(x):
     return e_x / e_x.sum(axis=0)  # only difference
 
 
-def custom_epsilon_greedy(strategy, epsilon, state, max_ratio=0.55):
+LAST_ACTION = None
+LAST_ACTION_COUNTER = 0
+
+
+def custom_epsilon_greedy(strategy, epsilon, state, current_reward=0, max_ratio=0.6):
+
+    global LAST_ACTION
+    global LAST_ACTION_COUNTER
+    if LAST_ACTION:
+        action = LAST_ACTION
+        LAST_ACTION_COUNTER -= 1
+        if not LAST_ACTION_COUNTER:
+            LAST_ACTION = None
+        return action
+
     p = random.random()
     if p < epsilon:
-        p = random.random()
-        if p < 0.65 and epsilon >= 0.7:
-            if p <= 0.65 * epsilon / 2:
-                return 10  # Y + RIGHT (accelerate RIGHT)
-            else:
-                return 9  # Y + B + RIGHT (accelerate RIGHT and jump)
-        else:
+        if p >= epsilon / 8 or current_reward > -200 or epsilon >= 0.5:
             return random.randint(0, meaningful_actions.shape[0] - 1)
+        else:
+            #  play the same random action multiple times (four times in a row) with a probability epsilon / 8
+            #  allows to unblock Mario in certain situations
+            LAST_ACTION = random.randint(0, meaningful_actions.shape[0] - 1)
+            LAST_ACTION_COUNTER = 4
+            return LAST_ACTION
     else:
         q_values = strategy.get_q_values(state)
         best_action = np.argmax(q_values)
         if not q_values.max():
             proba_on_q_values = np.ones(len(q_values)) / len(q_values)
         else:
-            # choose best actions w.r.t q-values
+            # choose best actions w.r.t. q-values
             best_actions = np.array(range(len(q_values)))[(q_values / q_values.max()) >= max_ratio]
             # choose best q-values
             best_q_values = q_values[(q_values / q_values.max()) >= max_ratio]
+            #  softmax on best q-values
             proba = softmax(best_q_values)
             proba_on_q_values = np.zeros(shape=len(q_values))
             for i, a in enumerate(best_actions):
                 proba_on_q_values[a] = proba[i]
 
-        logs = 4 * " " + "Q-values" + 8 * " " + "Softmax" + 7 * " " + "action meaning\n"
+        #  logs
+        logs = 7 * " " + "Q-values" + 8 * " " + "Softmax" + 7 * " " + "Action meaning\n"
         logs += "\n".join(
-            [align(str(i)) + ": " + "{:.6f}".format(x) + space(x) + "{:.4f}".format(proba_on_q_values[i]) + " " * 8 +
+            [align(str(i)) + ": " + "{:11.6f}".format(x) + 8 * " " + "{:.4f}".format(proba_on_q_values[i]) + " " * 8 +
              action_meaning[i] for i, x in enumerate(q_values)]
         )
         #  softmax choice
         global current_LOGS
-        if epsilon > 0.5 or not q_values.max():
-            logs += "\nBest Action: {}\n".format(best_action)
+        if not q_values.max():
+            logs += "\nBest Action: {}\n".format(" / ")
             current_LOGS = logs
-            return best_action
+            return random.randint(0, meaningful_actions.shape[0] - 1)
         else:
             choice = np.random.choice(best_actions, 1, p=proba)[0]
             logs += "\nBest Action: {} | Action chosen: {}\n".format(best_action, choice)
@@ -129,7 +150,8 @@ def pre_process(observation):
     # observation = observation[26:110, :]
     # observation = observation[:, :]
     # ret, observation = cv2.threshold(observation, 1, 255, cv2.THRESH_BINARY)
-    return np.reshape(observation, (84, 84, 1))
+    # return np.reshape(observation, (84, 84, 1))
+    return observation
 
 
 def show_all_actions_meaning(env):
@@ -141,7 +163,14 @@ def show_all_actions_meaning(env):
 
 
 def liveness(reward, action):
-    return reward if reward or action[7] else -0.0125
+    if action[7] and not action[5] and reward >= 0:
+        return reward + 0.5
+    elif action[7] and action[5] and reward >= 0:
+        return reward
+    elif not reward:
+        return -0.5
+    else:
+        return reward
 
 
 if __name__ == '__main__':
@@ -163,12 +192,12 @@ if __name__ == '__main__':
         DonutPlains4      VanillaDome4      \
         DonutPlains5      VanillaDome5      \
         Forest1           YoshiIsland1".split()
-    states = states_init
     t = 0
     epsilon = float(args['--epsilon'])
     strategy = None
-    init_iterations = 30
+    init_iterations = 80
     status = ""
+    episode = 0
 
     try:
         while True:
@@ -182,27 +211,37 @@ if __name__ == '__main__':
                 env = retro.make("SuperMarioWorld-Snes", emulator_state, scenario='scenario2')
                 #  show_all_actions_meaning(env)
             next_state = env.reset()
-            input_shape = pre_process(next_state).shape
+            next_state = pre_process(next_state)
+            next_state = np.array([next_state] * TEMPORAL_MEMORY)
+            next_state = np.stack(next_state, -1)
+            input_shape = next_state.shape
             t = 0
             total_reward = 0
             if not strategy:
-                strategy = DQL(env, number_of_actions=len(meaningful_actions), input_shape=input_shape)
-                custom_epsilon_greedy(strategy, 0, pre_process(next_state))
+                strategy = DQLStrategy(env, number_of_actions=len(meaningful_actions), input_shape=input_shape)
+                custom_epsilon_greedy(strategy, 0, next_state)
             else:
                 strategy.environment = env
+
             while True:
-                state = env.get_screen()
-                state = pre_process(state)
+                state = next_state
+                action = custom_epsilon_greedy(strategy, epsilon, state, current_reward=total_reward)
 
-                action = custom_epsilon_greedy(strategy, epsilon, state)
+                next_state = np.empty(TEMPORAL_MEMORY, dtype='object')
+                reward = 0
+                done = False
+                for i in range(TEMPORAL_MEMORY):
+                    next_state_t, reward_t, done_t, _ = env.step(meaningful_actions[action])
+                    reward += reward_t
+                    next_state[i] = pre_process(next_state_t)
+                    done = done_t or done
+                next_state = np.stack(next_state, axis=-1)
 
-                next_state, reward, done, info = env.step(meaningful_actions[action])
-                next_state = pre_process(next_state)
                 strategy.update(state, action, liveness(reward, meaningful_actions[action]), next_state, done)
                 t += 1
-                if t % 10 == 0:
+                if t % (10 // TEMPORAL_MEMORY) == 0:
                     env.render()
-                    for _ in range(7 + len(meaningful_actions)):
+                    for _ in range(8 + len(meaningful_actions)):
                         sys.stdout.write(CURSOR_UP_ONE)
                         sys.stdout.write(ERASE_LINE)
                     strategy_logs = strategy.logs
@@ -213,18 +252,16 @@ if __name__ == '__main__':
                     sys.stdout.write("current score={}\n".format(total_reward))
                     sys.stdout.write(current_LOGS)
                     sys.stdout.flush()
-                if not t % 100:
-                    plt.imsave("last_state.png", np.array(np.squeeze(state)))
                 total_reward += liveness(reward, meaningful_actions[action])
                 if done:
                     if not init_iterations:
-                        epsilon *= 0.994  # decay epsilon at each episode
+                        episode += 1
+                        epsilon *= 0.9996  # decay epsilon at each episode
                     else:
                         init_iterations -= 1
                     env.render()
                     try:
-                        status = "done! time=%i, reward=%d" % (t, total_reward)
-                        print()
+                        pass
                     except EOFError:
                         exit(0)
                     break
