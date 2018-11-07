@@ -8,7 +8,7 @@ from keras.losses import mse
 from keras.optimizers import SGD, RMSprop
 
 from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, GlobalAveragePooling2D, Dropout, Activation, concatenate, \
-    AveragePooling2D
+    AveragePooling2D, Lambda, Multiply
 import numpy as np
 
 global graph
@@ -20,25 +20,35 @@ CALLBACKS = [CHECKPOINT]
 
 
 def pre_process_input_state(s):
-    s = np.array(s, dtype='float')
     s /= 255.
     s -= 0.5
     s *= 2.
     return s
 
 
+def action_one_hot_encoder(number_of_actions, action):
+    one_hot_vector = np.zeros(shape=number_of_actions, dtype='?')
+    one_hot_vector[action] = 1
+    return one_hot_vector
+
+
 def dqn_init(state_input_shape, number_of_actions, name="Deep-Q-Network"):
     state_input = Input(shape=state_input_shape, name="state")
-    x = Conv2D(16, kernel_size=(3, 3), activation='relu',
-               input_shape=state_input_shape)(state_input)
-    x = MaxPooling2D(pool_size=(2, 2))(x)
-    x = Conv2D(32, (3, 3), activation='relu')(x)
-    x = MaxPooling2D(pool_size=(2, 2))(x)
+    x = Lambda(pre_process_input_state)(state_input)
+    x = Conv2D(32, (8, 8), strides=(4, 4))(x)
+    x = Activation('relu')(x)
+    x = Conv2D(64, (4, 4), strides=(2, 2))(x)
+    x = Activation('relu')(x)
+    x = Conv2D(64, (3, 3), strides=(1, 1))(x)
+    x = Activation('relu')(x)
     x = Flatten()(x)
-    x = Dense(192, activation='relu')(x)
-    x = Dense(128, activation='relu')(x)
+    x = Dense(512, activation='relu')(x)
     x = Dense(number_of_actions, name="q-values", kernel_initializer='zeros', activation='linear')(x)
-    model = Model(inputs=[state_input], outputs=[x], name=name)
+
+    action_input = Input(shape=(number_of_actions,), name="action_mask")
+    output = Multiply(name="q-values-masked")([x, action_input])
+
+    model = Model(inputs=[state_input, action_input], outputs=output, name=name)
 
     #   model.compile(optimizer=SGD(lr=0.002, momentum=0.95, decay=0., nesterov=True), loss=mse)
     #   model.compile(optimizer='nadam', loss=mse)
@@ -111,7 +121,7 @@ class ReplayMemory:
 
 def get_all_actions(n, env):
     """
-    Generate all pertinent combinations (wrt. the environment) of actions for a given size of vector given
+    Generate all pertinent combinations (w.r.t. the environment) of actions for a given size of vector given
     Example :
         - 12 actions
         - Vectors are of the form [1, 0, 0, ..., 0], [0, 1, 0, ..., 0], etc. in one hot encoding
@@ -151,10 +161,10 @@ def get_all_actions(n, env):
     return np.array(actions, dtype='?')
 
 
-class DQL(Strategy):
+class DQLStrategy(Strategy):
 
     def __init__(self, environment, gamma=0.99,
-                 batch_size=64, replay_memory_size=51200, history_size=12800,
+                 batch_size=32, replay_memory_size=51200, history_size=12800,
                  switch_network_episode=30, input_shape=None, number_of_actions=0):
         super().__init__(environment)
 
@@ -189,26 +199,41 @@ class DQL(Strategy):
         self.history_size = history_size
         self.replay_memory = ReplayMemory(replay_memory_size)
         self.gamma = gamma  # discount factor
+        self.exploration = True
 
-    def play(self, state, exploration=True):
+    def play(self, state):
+        state = np.array([state])
+        ones = np.array([np.ones(shape=self.number_of_actions)])
 
-        if not exploration:
+        if not self.exploration:
             return np.argmax(
-                self.main_dqn.predict(pre_process_input_state([state]))[0]
+                self.main_dqn.predict([state, ones])[0]
             )
         elif self.__random_exploration_phase and not self.__weights_loaded:
             return random.randint(0, self.number_of_actions - 1)
 
         else:
             return np.argmax(
-                self.exploration_dqn.predict(pre_process_input_state([state]))[0]
+                self.exploration_dqn.predict([state, ones])[0]
             )
 
-    def get_q_values(self, state, exploration=True):
-        if exploration:
-            return self.exploration_dqn.predict(pre_process_input_state([state]))[0]
+    def get_q_values(self, state):
+        state = np.array([state])
+        ones = np.array([np.ones(shape=self.number_of_actions)])
+
+        if self.exploration:
+            return self.exploration_dqn.predict([state, ones])[0]
         else:
-            return self.main_dqn.predict(pre_process_input_state([state]))[0]
+            return self.main_dqn.predict([state, ones])[0]
+
+    def q_value(self, state, action):
+        state = np.array([state])
+        action = np.array([action_one_hot_encoder(self.number_of_actions, action)])
+
+        if self.exploration:
+            return self.exploration_dqn.predict([state, action])[0]
+        else:
+            return self.main_dqn.predict([state, action])[0]
 
     def update(self, state, action, reward, next_state, done=False):
         self.replay_memory.append((state, action, reward, next_state, done))
@@ -228,11 +253,11 @@ class DQL(Strategy):
                 self.exploration_dqn.set_weights(self.main_dqn.get_weights())
 
         if not self.__iteration:
+            self.fit_main_dqn()
             if self.__random_exploration_phase:
                 self.__random_exploration_phase = False
                 self.__logs += ": exploration DQN <- copy of main DQN... ".format(self.__episode)
                 self.exploration_dqn.set_weights(self.main_dqn.get_weights())
-            self.fit_main_dqn()
 
     def fit_main_dqn(self):
         print("Fit critical deep q-network...")
@@ -263,19 +288,22 @@ class DQL(Strategy):
             index = lambda x, y: x * self.batch_size + y
             for i in range(steps):
                 q_values = np.empty(shape=(self.batch_size, self.number_of_actions), dtype='float')
+                actions_one_hot = np.empty(shape=(self.batch_size, self.number_of_actions), dtype='?')
                 for j in range(self.batch_size):
                     action = actions[index(i, j)]
-                    current_state = pre_process_input_state([states[index(i, j)]])
-                    successor = pre_process_input_state([next_states[index(i, j)]])
+                    actions_one_hot[j] = action_one_hot_encoder(self.number_of_actions, action)
+                    successor = np.array([next_states[index(i, j)]])
                     with graph.as_default():  # correct some synchronisation issues
-                        q_values[j] = self.exploration_dqn.predict(current_state)[0]
+                        q_values[j] = np.zeros(shape=self.number_of_actions)
                         if not done[index(i, j)]:
-                            successor_q_values = self.exploration_dqn.predict(successor)[0]
+                            successor_q_values = self.exploration_dqn.predict(
+                                [successor, np.array([np.ones(shape=self.number_of_actions)])]
+                            )[0]
                             q_values[j][action] = rewards[index(i, j)] + self.gamma * np.amax(successor_q_values)
                         else:
                             q_values[j][action] = rewards[index(i, j)]
 
-                yield states[i * self.batch_size: (i + 1) * self.batch_size], q_values
+                yield [states[i * self.batch_size: (i + 1) * self.batch_size], actions_one_hot], q_values
 
     @property
     def logs(self):
