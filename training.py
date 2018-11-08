@@ -258,7 +258,7 @@ if __name__ == '__main__':
                     if not init_iterations:
                         episode += 1
                         epsilon *= 0.9999  # decay epsilon at each episode
-                        max_ratio = max([0.6, max_ratio*0.99995])
+                        max_ratio = max([0.6, max_ratio*0.9999])
                     else:
                         init_iterations -= 1
                     env.render()
