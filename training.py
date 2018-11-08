@@ -89,7 +89,7 @@ LAST_ACTION = None
 LAST_ACTION_COUNTER = 0
 
 
-def custom_epsilon_greedy(strategy, epsilon, state, current_reward=0, max_ratio=0.6):
+def custom_epsilon_greedy(strategy, epsilon, state, current_reward=0, max_ratio=1.):
 
     global LAST_ACTION
     global LAST_ACTION_COUNTER
@@ -195,9 +195,10 @@ if __name__ == '__main__':
     t = 0
     epsilon = float(args['--epsilon'])
     strategy = None
-    init_iterations = 80
+    init_iterations = 64
     status = ""
     episode = 0
+    max_ratio = 1.
 
     try:
         while True:
@@ -219,7 +220,7 @@ if __name__ == '__main__':
             total_reward = 0
             if not strategy:
                 strategy = DQLStrategy(env, number_of_actions=len(meaningful_actions), input_shape=input_shape)
-                custom_epsilon_greedy(strategy, 0, next_state)
+                custom_epsilon_greedy(strategy, 0, next_state, max_ratio=max_ratio)
             else:
                 strategy.environment = env
 
@@ -256,7 +257,8 @@ if __name__ == '__main__':
                 if done:
                     if not init_iterations:
                         episode += 1
-                        epsilon *= 0.9996  # decay epsilon at each episode
+                        epsilon *= 0.9999  # decay epsilon at each episode
+                        max_ratio = max([0.6, max_ratio*0.99995])
                     else:
                         init_iterations -= 1
                     env.render()

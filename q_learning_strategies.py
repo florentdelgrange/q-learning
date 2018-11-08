@@ -165,7 +165,7 @@ class DQLStrategy(Strategy):
 
     def __init__(self, environment, gamma=0.99,
                  batch_size=32, replay_memory_size=51200, history_size=12800,
-                 switch_network_episode=30, input_shape=None, number_of_actions=0):
+                 switch_network_episode=5, input_shape=None, number_of_actions=0):
         super().__init__(environment)
 
         self.__logs = ''  # gather logs during each iteration
@@ -245,17 +245,15 @@ class DQLStrategy(Strategy):
         else:
             self.__iteration %= self.history_size
 
-        if done and not self.__random_exploration_phase:
-            self.__episode += 1
-            self.__logs += "Episode {} ".format(self.__episode)
-            if not self.__episode % self.switch_network_episode:
-                self.__logs += ": exploration DQN <- copy of main DQN... ".format(self.__episode)
-                self.exploration_dqn.set_weights(self.main_dqn.get_weights())
-
         if not self.__iteration:
             self.fit_main_dqn()
+            self.__episode += 1
+            self.__logs += "Episode {} ".format(self.__episode)
             if self.__random_exploration_phase:
                 self.__random_exploration_phase = False
+                self.__logs += ": exploration DQN <- copy of main DQN... ".format(self.__episode)
+                self.exploration_dqn.set_weights(self.main_dqn.get_weights())
+            elif not self.__episode % self.switch_network_episode:
                 self.__logs += ": exploration DQN <- copy of main DQN... ".format(self.__episode)
                 self.exploration_dqn.set_weights(self.main_dqn.get_weights())
 
