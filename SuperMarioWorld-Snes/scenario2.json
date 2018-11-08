@@ -1,55 +1,41 @@
 {
   "done": {
     "variables": {
-      "lives": {
-        "op": "zero"
+      "PlayerStatus": {
+        "op": "equal",
+        "reference": 9
       }
     }
   },
   "reward": {
     "variables": {
       "score": {
-        "reward": 1
+        "reward": 2
+      },
+      "blocked":{
+        "op": "equal",
+        "reference": 1,
+        "reward": -0.125
       },
       "PlayerStatus": {
         "op": "equal",
         "reference": 9,
-        "reward": -200
-      },
-      "PlayerStatus": {
-        "op": "equal",
-        "reference": 1,
-        "reward": -200
+        "reward": -50
       },
       "PlayerStatus": {
         "op": "equal",
         "reference": 13,
-        "reward": 100
+        "reward": 5
       },
       "PlayerStatus": {
         "op": "equal",
         "reference": 5,
-        "reward": 100
+        "reward": 5
       },
       "PlayerStatus": {
         "op": "equal",
         "reference": 6,
-        "reward": 100
-      },
-      "scrolling": {
-        "op": "equal",
-        "reference": 2,
-        "reward": 1
-      },
-      "scrolling": {
-        "op": "equal",
-        "reference": 2,
-        "reward": 1
-      },
-      "blocked": {
-        "op": "equal",
-        "reference": 1,
-        "reward": -20
+        "reward": 5
       }
     }
   }
