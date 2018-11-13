@@ -32,15 +32,18 @@ def action_one_hot_encoder(number_of_actions, action):
     one_hot_vector[action] = 1
     return one_hot_vector
 
-def huber_loss(y, y_pred, delta=1.0):
-        """
-        https://github.com/Kautenja/playing-mario-with-deep-reinforcement-learning/blob/master/src/models/losses.py
-        """
-        residual = K.abs(y_pred - y)
-        condition = K.less_equal(residual, delta)
-        then_this = 0.5 * K.square(residual)
-        else_this = delta * residual - 0.5 * K.square(delta)
-        return K.switch(condition, then_this, else_this)
+def huber_loss(y_true, y_pred, clip_value=1.0):
+    assert clip_value > 0.
+    x = y_true - y_pred
+    if np.isinf(clip_value):
+        return .5 * K.square(x)
+    condition = K.abs(x) < clip_value
+    squared_loss = .5 * K.square(x)
+    linear_loss = clip_value * (K.abs(x) - .5 * clip_value)
+    if hasattr(tf, 'select'):
+        return tf.select(condition, squared_loss, linear_loss)  # condition, true, false
+    else:
+        return tf.where(condition, squared_loss, linear_loss)  # condition, true, false
 
 def dqn_init(state_input_shape, number_of_actions, name="Deep-Q-Network"):
     state_input = Input(shape=state_input_shape, name="state")
@@ -62,7 +65,7 @@ def dqn_init(state_input_shape, number_of_actions, name="Deep-Q-Network"):
 
     #   model.compile(optimizer=SGD(lr=0.002, momentum=0.95, decay=0., nesterov=True), loss=mse)
     #   model.compile(optimizer='nadam', loss=mse)
-    model.compile(optimizer=RMSprop(lr=0.00025, rho=0.95, epsilon=0.01), loss=mse)
+    model.compile(optimizer=RMSprop(lr=0.00025, rho=0.95, epsilon=0.01), loss=huber_loss)
 
     model.summary()
     return model
