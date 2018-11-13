@@ -44,7 +44,10 @@ meaningful_actions = np.array([
     [0., 1., 0., 0., 0., 1., 1., 0., 0., 0., 0., 0.],  # Y + LEFT (accelerate LEFT and DOWN)
     [0., 1., 0., 0., 0., 0., 1., 0., 1., 0., 0., 0.],  # Y + A + LEFT (accelerate LEFT and spin jump)
     [1., 0., 0., 0., 0., 0., 0., 1., 0., 0., 0., 0.],  # B button + RIGHT
-    [1., 0., 0., 0., 0., 0., 1., 0., 0., 0., 0., 0.]   # B button + LEFT
+    [1., 0., 0., 0., 0., 0., 1., 0., 0., 0., 0., 0.],  # B button + LEFT
+    [1., 0., 0., 0., 1., 0., 0., 1., 0., 0., 0., 0.],  # UP + B button + RIGHT 
+    [1., 0., 0., 0., 1., 0., 1., 0., 0., 0., 0., 0.],  # UP + B button + LEFT
+    [0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.]   # Do nothing
 ], dtype='?')  # meaningful actions for SuperMarioWorld
 
 action_meaning = [
@@ -68,7 +71,10 @@ action_meaning = [
     "Y + LEFT + DOWN",
     "Y + A + LEFT",
     "B + RIGHT",
-    "B + LEFT"
+    "B + LEFT",
+    "B + UP + RIGHT",
+    "B + UP + LEFT",
+    "Do nothing"
 ]
 
 align = lambda x: x if len(x) == 2 else x + " "
@@ -79,11 +85,12 @@ CURSOR_UP_ONE = '\x1b[1A'
 TEMPORAL_MEMORY = 4
 
 
-def softmax(x):
+def softmax(x, temperature=0.1):
     """Compute softmax values for each sets of scores in x."""
-    e_x = np.exp(x - np.max(x))
+    e_x = np.exp((x - np.max(x)) / temperature)
     return e_x / e_x.sum(axis=0)  # only difference
-
+    #  return np.exp(x / temperature) / np.sum(np.exp(x / temperature))
+            
 
 LAST_ACTION = None
 LAST_ACTION_COUNTER = 0
@@ -182,7 +189,7 @@ if __name__ == '__main__':
         DonutPlains1      Start             \
         DonutPlains2".split()
     states = "Bridges1          Forest2           YoshiIsland2\
-        Bridges2          Forest3           YoshiIsland3\
+        Bridges2          Forest3\
         ChocolateIsland1  Forest4           YoshiIsland4\
         ChocolateIsland2  Forest5           \
         ChocolateIsland3  Start             \
@@ -198,7 +205,7 @@ if __name__ == '__main__':
     init_iterations = 64
     status = ""
     episode = 0
-    max_ratio = 1.
+    max_ratio = min([1, epsilon * 1.5])
 
     try:
         while True:
@@ -226,7 +233,7 @@ if __name__ == '__main__':
 
             while True:
                 state = next_state
-                action = custom_epsilon_greedy(strategy, epsilon, state, current_reward=total_reward)
+                action = custom_epsilon_greedy(strategy, epsilon, state, current_reward=total_reward, max_ratio=max_ratio)
 
                 next_state = np.empty(TEMPORAL_MEMORY, dtype='object')
                 reward = 0
@@ -240,9 +247,9 @@ if __name__ == '__main__':
 
                 strategy.update(state, action, liveness(reward, meaningful_actions[action]), next_state, done)
                 t += 1
-                if t % (10 // TEMPORAL_MEMORY) == 0:
+                if not t % (10 // TEMPORAL_MEMORY):
                     env.render()
-                    for _ in range(8 + len(meaningful_actions)):
+                    for _ in range(9 + len(meaningful_actions)):
                         sys.stdout.write(CURSOR_UP_ONE)
                         sys.stdout.write(ERASE_LINE)
                     strategy_logs = strategy.logs
@@ -250,6 +257,7 @@ if __name__ == '__main__':
                     sys.stdout.write("Emulator state: {}\n".format(emulator_state))
                     sys.stdout.write("Status: {}\n".format(status))
                     sys.stdout.write("ε={}\n".format(epsilon))
+                    sys.stdout.write("best q-values ratio (for softmax): {}\n".format(max_ratio))
                     sys.stdout.write("current score={}\n".format(total_reward))
                     sys.stdout.write(current_LOGS)
                     sys.stdout.flush()
@@ -257,8 +265,8 @@ if __name__ == '__main__':
                 if done:
                     if not init_iterations:
                         episode += 1
-                        epsilon *= 0.9999  # decay epsilon at each episode
-                        max_ratio = max([0.6, max_ratio*0.9999])
+                        epsilon *= 0.99999  # decay epsilon at each episode
+                        max_ratio = min([1, epsilon * 1.5])
                     else:
                         init_iterations -= 1
                     env.render()

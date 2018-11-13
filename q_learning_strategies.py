@@ -9,6 +9,7 @@ from keras.optimizers import SGD, RMSprop
 
 from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, GlobalAveragePooling2D, Dropout, Activation, concatenate, \
     AveragePooling2D, Lambda, Multiply
+from keras import backend as K
 import numpy as np
 
 global graph
@@ -31,6 +32,15 @@ def action_one_hot_encoder(number_of_actions, action):
     one_hot_vector[action] = 1
     return one_hot_vector
 
+def huber_loss(y, y_pred, delta=1.0):
+        """
+        https://github.com/Kautenja/playing-mario-with-deep-reinforcement-learning/blob/master/src/models/losses.py
+        """
+        residual = K.abs(y_pred - y)
+        condition = K.less_equal(residual, delta)
+        then_this = 0.5 * K.square(residual)
+        else_this = delta * residual - 0.5 * K.square(delta)
+        return K.switch(condition, then_this, else_this)
 
 def dqn_init(state_input_shape, number_of_actions, name="Deep-Q-Network"):
     state_input = Input(shape=state_input_shape, name="state")
@@ -159,7 +169,6 @@ def get_all_actions(n, env):
             actions.append(action)
             actions_meaning.add(get_action_from_list(action_meaning))
     return np.array(actions, dtype='?')
-
 
 class DQLStrategy(Strategy):
 
