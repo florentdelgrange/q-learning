@@ -153,7 +153,7 @@ def custom_epsilon_greedy(strategy, epsilon, state, current_reward=0, max_ratio=
 
 
 def pre_process(observation):
-    observation = cv2.cvtColor(cv2.resize(observation, (84, 84)), cv2.COLOR_BGR2GRAY)
+    observation = cv2.cvtColor(cv2.resize(observation, (128, 128)), cv2.COLOR_RGB2GRAY)
     # observation = observation[26:110, :]
     # observation = observation[:, :]
     # ret, observation = cv2.threshold(observation, 1, 255, cv2.THRESH_BINARY)
@@ -265,7 +265,7 @@ if __name__ == '__main__':
                 if done:
                     if not init_iterations:
                         episode += 1
-                        epsilon *= 0.99999  # decay epsilon at each episode
+                        epsilon *= 0.99992  # decay epsilon at each episode
                         max_ratio = min([1, epsilon * 1.5])
                     else:
                         init_iterations -= 1
