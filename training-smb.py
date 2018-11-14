@@ -152,15 +152,16 @@ if __name__ == '__main__':
     t = 0
     epsilon = float(args['--epsilon'])
     strategy = None
-    init_iterations = 64
+    init_iterations = 8
     status = ""
     episode = 0
     max_ratio = min([1, epsilon * 1.5])
+    best_score = None
 
     try:
         while True:
             emulator_state = states[
-                np.random.choice(np.array(range(8)), 1, p=softmax(np.array([7, 6, 5, 4, 3, 2, 1, 0]) + 3))[0]
+                np.random.choice(np.array(range(8)), 1, p=softmax(np.array([7, 6, 5, 4, 3, 2, 1, 0]) + 3, temperature=5))[0]
             ]
             if t:
                 env.load_state(emulator_state)
@@ -189,14 +190,25 @@ if __name__ == '__main__':
                 done = False
                 for i in range(TEMPORAL_MEMORY):
                     next_state_t, reward_t, done_t, info = env.step(meaningful_actions[action])
-                    if info['PlayerState'] == 6 or info['PlayerState'] == 11:
-                            reward = -0.5
-                    elif info['PlayerState'] == 3:
+                    # Dying
+                    # if info['PlayerState'] in [6, 11]:
+                    #        reward = -0.5
+                    # Pipe
+                    if info['PlayerState'] in [3, 2]:
                             reward += 5
+                    # Climbing vine
+                    elif info['PlayerState'] == 1:
+                            reward += 2
+                    # Blocked
+                    elif info['PlayerState'] in [9, 12]:
+                            reward = -0.125
                     reward += reward_t
                     next_state[i] = pre_process(next_state_t)
                     done = done_t or done
                 next_state = np.stack(next_state, axis=-1)
+
+                #  liveness
+                reward = -0.0625 if not reward else reward
 
                 strategy.update(state, action, reward, next_state, done)
                 t += 1
@@ -211,14 +223,18 @@ if __name__ == '__main__':
                     sys.stdout.write("Status: {}\n".format(status))
                     sys.stdout.write("ε={}\n".format(epsilon))
                     sys.stdout.write("best q-values ratio (for softmax): {}\n".format(max_ratio))
-                    sys.stdout.write("current score={}\n".format(total_reward))
+                    sys.stdout.write("high score={} | current score={:9.3f} | current rewards={:9.3f}\n".format(best_score, info['score'], total_reward))
                     sys.stdout.write(current_LOGS)
                     sys.stdout.flush()
                 total_reward += reward
                 if done:
+                    if best_score == None:
+                        best_score = info['score']
+                    else:
+                        best_score = best_score if best_score >= info['score'] else info['score']
                     if not init_iterations:
                         episode += 1
-                        epsilon *= 0.99992  # decay epsilon at each episode
+                        epsilon *= 0.998  # decay epsilon at each episode
                         max_ratio = min([1, epsilon * 1.5])
                     else:
                         init_iterations -= 1
