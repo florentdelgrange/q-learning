@@ -1,0 +1,43 @@
+{
+  "done": {
+    "variables": {
+      "lives": {
+        "op": "equal",
+        "reference": -1
+      }
+    }
+  },
+  "reward": {
+    "variables": {
+      "xscrollLo": {
+        "reward": 0.00125
+      },
+      "score": {
+        "reward": 1
+      },
+      "coins": {
+        "reward": 5
+      },
+      "PlayerState": {
+        "op": "equal",
+        "reference": 8,
+        "reward": -0.125
+      },
+      "PlayerState": {
+        "op": "equal",
+        "reference": 6,
+        "reward": -5
+      },
+      "PlayerState": {
+        "op": "equal",
+        "reference": 9,
+        "reward": -0.125
+      },
+      "PlayerState": {
+        "op": "equal",
+        "reference": 3,
+        "reward": 5
+      }
+    }
+  }
+}
