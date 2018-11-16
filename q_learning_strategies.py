@@ -12,6 +12,8 @@ from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, GlobalAveragePool
 from keras import backend as K
 import numpy as np
 
+from SarstReplayMemory import SarstReplayMemory
+
 global graph
 graph = tf.get_default_graph()
 
@@ -32,6 +34,7 @@ def action_one_hot_encoder(number_of_actions, action):
     one_hot_vector[action] = 1
     return one_hot_vector
 
+
 def huber_loss(y_true, y_pred, clip_value=1.0):
     assert clip_value > 0.
     x = y_true - y_pred
@@ -44,6 +47,7 @@ def huber_loss(y_true, y_pred, clip_value=1.0):
         return tf.select(condition, squared_loss, linear_loss)  # condition, true, false
     else:
         return tf.where(condition, squared_loss, linear_loss)  # condition, true, false
+
 
 def dqn_init(state_input_shape, number_of_actions, name="Deep-Q-Network"):
     state_input = Input(shape=state_input_shape, name="state")
@@ -173,6 +177,7 @@ def get_all_actions(n, env):
             actions_meaning.add(get_action_from_list(action_meaning))
     return np.array(actions, dtype='?')
 
+
 class DQLStrategy(Strategy):
 
     def __init__(self, environment, gamma=0.99,
@@ -209,7 +214,7 @@ class DQLStrategy(Strategy):
         self.switch_network_episode = switch_network_episode
         self.batch_size = batch_size
         self.history_size = history_size
-        self.replay_memory = ReplayMemory(replay_memory_size)
+        self.replay_memory = SarstReplayMemory(replay_memory_size, input_shape)
         self.gamma = gamma  # discount factor
         self.exploration = True
 
@@ -278,22 +283,18 @@ class DQLStrategy(Strategy):
     def q_generator(self):
         while True:
             n = self.history_size
-            states_shape = [n] + list(self.input_shape)
-            observations = [
-                np.empty(shape=states_shape, dtype='uint8'),  # state
-                np.empty(shape=n, dtype='uint8'),  # action
-                np.empty(shape=n, dtype='float'),  # reward
-                np.empty(shape=states_shape, dtype='uint8'),  # next_state
-                np.empty(shape=n, dtype='?')  # done
-            ]
-            for j, memory in enumerate(self.replay_memory.sample(n)):
-                for i, value in enumerate(memory):
-                    observations[i][j] = value
-            states = observations[0]
-            actions = observations[1]
-            rewards = observations[2]
-            next_states = observations[3]
-            done = observations[4]
+            #    states_shape = [n] + list(self.input_shape)
+            #    observations = [
+            #        np.empty(shape=states_shape, dtype='uint8'),  # state
+            #        np.empty(shape=n, dtype='uint8'),  # action
+            #        np.empty(shape=n, dtype='float'),  # reward
+            #        np.empty(shape=states_shape, dtype='uint8'),  # next_state
+            #        np.empty(shape=n, dtype='?')  # done
+            #    ]
+            #    for j, memory in enumerate(self.replay_memory.sample(n)):
+            #        for i, value in enumerate(memory):
+            #            observations[i][j] = value
+            states, actions, rewards, next_states, done = self.replay_memory.sample(n)
             steps = n // self.batch_size
             index = lambda x, y: x * self.batch_size + y
             for i in range(steps):
