@@ -33,7 +33,7 @@ meaningful_actions = np.array([
     [0., 0., 0., 0., 0., 0., 0., 0., 1.],  # A button
     [1., 0., 0., 0., 0., 0., 0., 1., 0.],  # B + RIGHT
     [1., 0., 0., 0., 0., 0., 0., 1., 1.],  # A + B + RIGHT
-    [0., 0., 0., 0., 1., 0., 0., 0., 1.],  # A + UP 
+    [0., 0., 0., 0., 1., 0., 0., 0., 1.],  # A + UP
     [0., 0., 0., 0., 1., 0., 0., 1., 1.],  # A + UP  + RIGHT
     [1., 0., 0., 0., 1., 0., 0., 1., 1.],  # A + B + UP + RIGHT
     [1., 0., 0., 0., 0., 0., 1., 0., 0.],  # B + LEFT
@@ -197,25 +197,24 @@ if __name__ == '__main__':
                 for i in range(TEMPORAL_MEMORY):
                     next_state_t, reward_t, done_t, info = env.step(meaningful_actions[action])
                     # Dying
-                    if info['PlayerState'] in [6, 11]:
-                            # reward = -0.5
-                            dead = dead or True
+                    if info['PlayerState'] in [6, 11] and not info['time'] == 0:
+                        reward_t = -100
                     # Pipe
                     if info['PlayerState'] in [3, 2]:
-                            reward += 1
+                        reward_t += 25
                     # Climbing vine
                     elif info['PlayerState'] == 1:
-                            reward += 1
+                        reward_t += 1
                     # Blocked
                     elif info['PlayerState'] in [9, 12]:
-                            reward = -0.125
+                            reward_t = -0.0625
                     reward += reward_t
                     next_state[i] = pre_process(next_state_t)
                     done = done_t or done
                 next_state = np.stack(next_state, axis=-1)
 
                 #  liveness
-                reward = -0.0625 if not reward and not dead else reward
+                reward = -0.1 / 25 if not reward else reward
 
                 strategy.update(state, action, reward, next_state, done)
                 t += 1
