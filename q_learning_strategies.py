@@ -69,7 +69,8 @@ def dqn_init(state_input_shape, number_of_actions, name="Deep-Q-Network"):
 
     #   model.compile(optimizer=SGD(lr=0.002, momentum=0.95, decay=0., nesterov=True), loss=mse)
     #   model.compile(optimizer='nadam', loss=mse)
-    model.compile(optimizer=RMSprop(lr=0.00025, rho=0.95, epsilon=0.01), loss=huber_loss)
+    learning_rate_decay = 0.999999
+    model.compile(optimizer=RMSprop(lr=0.0003, rho=0.95, epsilon=0.01, decay=learning_rate_decay), loss=huber_loss)
 
     model.summary()
     return model
