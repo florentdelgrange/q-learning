@@ -56,7 +56,7 @@ CURSOR_UP_ONE = '\x1b[1A'
 TEMPORAL_MEMORY = 4
 
 
-def softmax(x, temperature=0.1):
+def softmax(x, temperature=1e-2):
     """Compute softmax values for each sets of scores in x."""
     e_x = np.exp((x - np.max(x)) / temperature)
     return e_x / e_x.sum(axis=0)  # only difference
@@ -94,9 +94,14 @@ def custom_epsilon_greedy(strategy, epsilon, state, current_reward=0, max_ratio=
             proba_on_q_values = np.ones(len(q_values)) / len(q_values)
         else:
             # choose best actions w.r.t. q-values
-            best_actions = np.array(range(len(q_values)))[(q_values / q_values.max()) >= max_ratio]
-            # choose best q-values
-            best_q_values = q_values[(q_values / q_values.max()) >= max_ratio]
+            if q_values.max() > 0:
+                    best_actions = np.array(range(len(q_values)))[(q_values / q_values.max()) >= max_ratio]
+                    # choose best q-values
+                    best_q_values = q_values[(q_values / q_values.max()) >= max_ratio]
+            else:
+                    best_actions = np.array(range(len(q_values)))[(q_values.max() / q_values) >= max_ratio]
+                    # choose best q-values
+                    best_q_values = q_values[(q_values.max() / q_values) >= max_ratio]
             #  softmax on best q-values
             proba = softmax(best_q_values)
             proba_on_q_values = np.zeros(shape=len(q_values))
@@ -116,7 +121,7 @@ def custom_epsilon_greedy(strategy, epsilon, state, current_reward=0, max_ratio=
             current_LOGS = logs
             return random.randint(0, meaningful_actions.shape[0] - 1)
         else:
-            choice = np.random.choice(best_actions, 1, p=proba)[0]
+            choice = np.random.choice(best_actions, 1, p=proba)[0] # if epsilon < 0.85 else best_action
             logs += "\nBest Action: {} | Action chosen: {}\n".format(best_action, choice)
             current_LOGS = logs
             return choice
@@ -188,17 +193,19 @@ if __name__ == '__main__':
                 next_state = np.empty(TEMPORAL_MEMORY, dtype='object')
                 reward = 0
                 done = False
+                dead = False
                 for i in range(TEMPORAL_MEMORY):
                     next_state_t, reward_t, done_t, info = env.step(meaningful_actions[action])
                     # Dying
-                    # if info['PlayerState'] in [6, 11]:
-                    #        reward = -0.5
+                    if info['PlayerState'] in [6, 11]:
+                            # reward = -0.5
+                            dead = dead or True
                     # Pipe
                     if info['PlayerState'] in [3, 2]:
-                            reward += 5
+                            reward += 1
                     # Climbing vine
                     elif info['PlayerState'] == 1:
-                            reward += 2
+                            reward += 1
                     # Blocked
                     elif info['PlayerState'] in [9, 12]:
                             reward = -0.125
@@ -208,7 +215,7 @@ if __name__ == '__main__':
                 next_state = np.stack(next_state, axis=-1)
 
                 #  liveness
-                reward = -0.0625 if not reward else reward
+                reward = -0.0625 if not reward and not dead else reward
 
                 strategy.update(state, action, reward, next_state, done)
                 t += 1
@@ -234,7 +241,7 @@ if __name__ == '__main__':
                         best_score = best_score if best_score >= info['score'] else info['score']
                     if not init_iterations:
                         episode += 1
-                        epsilon *= 0.998  # decay epsilon at each episode
+                        epsilon = max(1e-3, epsilon * 0.998)  # decay epsilon at each episode
                         max_ratio = min([1, epsilon * 1.5])
                     else:
                         init_iterations -= 1
