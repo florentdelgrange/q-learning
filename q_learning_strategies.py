@@ -5,7 +5,7 @@ import tensorflow as tf
 from keras import Input, Model
 from keras.callbacks import ModelCheckpoint
 from keras.losses import mse
-from keras.optimizers import SGD, RMSprop
+from keras.optimizers import SGD, RMSprop, Nadam, Adam
 
 from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, GlobalAveragePooling2D, Dropout, Activation, concatenate, \
     AveragePooling2D, Lambda, Multiply
@@ -68,9 +68,9 @@ def dqn_init(state_input_shape, number_of_actions, name="Deep-Q-Network"):
     model = Model(inputs=[state_input, action_input], outputs=output, name=name)
 
     #   model.compile(optimizer=SGD(lr=0.002, momentum=0.95, decay=0., nesterov=True), loss=mse)
-    #   model.compile(optimizer='nadam', loss=mse)
-    learning_rate_decay = 0.999999
-    model.compile(optimizer=RMSprop(lr=0.0003, rho=0.95, epsilon=0.01, decay=learning_rate_decay), loss=huber_loss)
+    model.compile(optimizer=Adam(lr=0.0003), loss=mse)
+    #   learning_rate_decay = 0.999999
+    #   model.compile(optimizer=RMSprop(lr=0.0003, rho=0.95, epsilon=0.01, decay=learning_rate_decay), loss=huber_loss)
 
     model.summary()
     return model
@@ -181,9 +181,9 @@ def get_all_actions(n, env):
 
 class DQLStrategy(Strategy):
 
-    def __init__(self, environment, gamma=0.99,
+    def __init__(self, environment, gamma=0.92,
                  batch_size=32, replay_memory_size=51200, history_size=12800,
-                 switch_network_episode=5, input_shape=None, number_of_actions=0):
+                 switch_network_episode=12, input_shape=None, number_of_actions=0):
         super().__init__(environment)
 
         self.__logs = ''  # gather logs during each iteration
@@ -254,12 +254,12 @@ class DQLStrategy(Strategy):
             return self.main_dqn.predict([state, action])[0]
 
     def update(self, state, action, reward, next_state, done=False):
-        self.replay_memory.append((state, action, reward, next_state, done))
+        self.replay_memory.append(state, action, reward, next_state, done)
 
         self.__iteration += 1
 
         if self.__random_exploration_phase:
-            self.__iteration %= self.replay_memory.maxlen
+            self.__iteration %= self.replay_memory.memory_capacity
         else:
             self.__iteration %= self.history_size
 
