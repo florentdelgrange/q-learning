@@ -18,9 +18,6 @@ global graph
 graph = tf.get_default_graph()
 
 CHECKPOINT_PATH = './models/model_checkpoint.hdf5'
-CHECKPOINT = ModelCheckpoint(CHECKPOINT_PATH, verbose=1, save_best_only=False)
-CALLBACKS = [CHECKPOINT]
-
 
 def pre_process_input_state(s):
     s /= 255.
@@ -183,7 +180,8 @@ class DQLStrategy(Strategy):
 
     def __init__(self, environment, gamma=0.92,
                  batch_size=32, replay_memory_size=51200, history_size=12800,
-                 switch_network_episode=12, input_shape=None, number_of_actions=0):
+                 switch_network_episode=8, input_shape=None, number_of_actions=0,
+                 checkpoint_path="", current_episode=1):
         super().__init__(environment)
 
         self.__logs = ''  # gather logs during each iteration
@@ -204,14 +202,20 @@ class DQLStrategy(Strategy):
         self.__random_exploration_phase = True
         self.__weights_loaded = False
 
-        if os.path.isfile(CHECKPOINT_PATH):
+        if checkpoint_path:
+            self.main_dqn.load_weights(checkpoint_path)
+            self.exploration_dqn.load_weights(checkpoint_path)
+            self.__weights_loaded = True
+            self.__logs += "{}: weights loaded ".format(checkpoint_path)
+
+        elif os.path.isfile(CHECKPOINT_PATH):
             self.main_dqn.load_weights(CHECKPOINT_PATH)
             self.exploration_dqn.load_weights(CHECKPOINT_PATH)
             self.__weights_loaded = True
             self.__logs += "{}: weights loaded ".format(CHECKPOINT_PATH)
 
         self.__iteration = 0
-        self.__episode = 1
+        self.__episode = current_episode
         self.switch_network_episode = switch_network_episode
         self.batch_size = batch_size
         self.history_size = history_size
@@ -277,6 +281,12 @@ class DQLStrategy(Strategy):
 
     def fit_main_dqn(self):
         print("Fit critical deep q-network...")
+        if not self.__episode % self.switch_network_episode:
+            CHECKPOINT = ModelCheckpoint("{}_episode{}.hdf5".format(CHECKPOINT_PATH[:-5], self.__episode) , verbose=1, save_best_only=False)
+            CALLBACKS = [CHECKPOINT]
+            self.__logs += "weights saved; "
+        else:
+            CALLBACKS = []
         self.main_dqn.fit_generator(self.q_generator(),
                                     steps_per_epoch=(self.history_size // self.batch_size),
                                     callbacks=CALLBACKS)
@@ -284,17 +294,6 @@ class DQLStrategy(Strategy):
     def q_generator(self):
         while True:
             n = self.history_size
-            #    states_shape = [n] + list(self.input_shape)
-            #    observations = [
-            #        np.empty(shape=states_shape, dtype='uint8'),  # state
-            #        np.empty(shape=n, dtype='uint8'),  # action
-            #        np.empty(shape=n, dtype='float'),  # reward
-            #        np.empty(shape=states_shape, dtype='uint8'),  # next_state
-            #        np.empty(shape=n, dtype='?')  # done
-            #    ]
-            #    for j, memory in enumerate(self.replay_memory.sample(n)):
-            #        for i, value in enumerate(memory):
-            #            observations[i][j] = value
             states, actions, rewards, next_states, done = self.replay_memory.sample(n)
             steps = n // self.batch_size
             index = lambda x, y: x * self.batch_size + y

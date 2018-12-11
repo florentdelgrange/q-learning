@@ -1,12 +1,14 @@
 """Deep q-learning training for Super Mario World
 
 Usage:
-    training.py [--epsilon <epsilon>]
+    training.py [--epsilon <epsilon>] [--episode <episode>] [--model_path <path>]
     training.py (-h | --help)
 
 Options:
 -h --help                           Display help.
 -e --epsilon <epsilon>              Actions are selected randomly with a probability epsilon (epsilon-greedy algorithm). [default: 1.]
+-p --model_path <path>              Path of weights to load. [default: ""]
+--episode <episode>                 Episode. [default: 1]
 """
 
 import random
@@ -25,24 +27,24 @@ import matplotlib.pyplot as plt
 from q_learning_strategies import DQLStrategy
 
 meaningful_actions = np.array([
-    [1., 0., 0., 0., 0., 0., 0., 0., 0.],  # B button
-    [0., 0., 0., 0., 1., 0., 0., 0., 0.],  # UP button
+    # [1., 0., 0., 0., 0., 0., 0., 0., 0.],  # B button
+    # [0., 0., 0., 0., 1., 0., 0., 0., 0.],  # UP button
     [0., 0., 0., 0., 0., 1., 0., 0., 0.],  # DOWN button
-    [0., 0., 0., 0., 0., 0., 1., 0., 0.],  # LEFT button
-    [0., 0., 0., 0., 0., 0., 0., 1., 0.],  # RIGHT button
-    [0., 0., 0., 0., 0., 0., 0., 0., 1.],  # A button
+    # [0., 0., 0., 0., 0., 0., 1., 0., 0.],  # LEFT button
+    # [0., 0., 0., 0., 0., 0., 0., 1., 0.],  # RIGHT button
+    # [0., 0., 0., 0., 0., 0., 0., 0., 1.],  # A button
     [1., 0., 0., 0., 0., 0., 0., 1., 0.],  # B + RIGHT
     [1., 0., 0., 0., 0., 0., 0., 1., 1.],  # A + B + RIGHT
-    [0., 0., 0., 0., 1., 0., 0., 0., 1.],  # A + UP
-    [0., 0., 0., 0., 1., 0., 0., 1., 1.],  # A + UP  + RIGHT
+    # [0., 0., 0., 0., 1., 0., 0., 0., 1.],  # A + UP
+    # [0., 0., 0., 0., 1., 0., 0., 1., 1.],  # A + UP  + RIGHT
     [1., 0., 0., 0., 1., 0., 0., 1., 1.],  # A + B + UP + RIGHT
     [1., 0., 0., 0., 0., 0., 1., 0., 0.],  # B + LEFT
-    [1., 0., 0., 0., 0., 0., 1., 0., 1.],  # A + B + LEFT
-    [0., 0., 0., 0., 1., 0., 1., 0., 1.],  # A + UP  + LEFT
+    # [1., 0., 0., 0., 0., 0., 1., 0., 1.],  # A + B + LEFT
+    # [0., 0., 0., 0., 1., 0., 1., 0., 1.],  # A + UP  + LEFT
     [1., 0., 0., 0., 1., 0., 1., 0., 1.],  # A + B + UP + LEFT
-    [0., 0., 0., 0., 0., 1., 0., 1., 0.],  # DOWN + RIGHT
-    [0., 0., 0., 0., 0., 1., 1., 0., 0.],  # DOWN + LEFT
-    [0., 0., 0., 0., 0., 0., 0., 0., 0.],  # B button
+    # [0., 0., 0., 0., 0., 1., 0., 1., 0.],  # DOWN + RIGHT
+    # [0., 0., 0., 0., 0., 1., 1., 0., 0.],  # DOWN + LEFT
+    # [0., 0., 0., 0., 0., 0., 0., 0., 0.],  # do nothing
 ], dtype='?')  # meaningful actions for SuperMarioWorld
 
 action_meaning = None
@@ -59,36 +61,12 @@ TEMPORAL_MEMORY = 4
 def softmax(x, temperature=1e-1):
     """Compute softmax values for each sets of scores in x."""
     e_x = np.exp((x - np.max(x)) / temperature)
-    return e_x / e_x.sum(axis=0)  # only difference
-    #  return np.exp(x / temperature) / np.sum(np.exp(x / temperature))
-
-LAST_ACTION = None
-LAST_ACTION_COUNTER = 0
-
+    return e_x / e_x.sum(axis=0)
 
 def custom_epsilon_greedy(strategy, epsilon, state, current_reward=0, max_ratio=1.):
-
-    global LAST_ACTION
-    global LAST_ACTION_COUNTER
-    if LAST_ACTION:
-        action = LAST_ACTION
-        LAST_ACTION_COUNTER -= 1
-        if not LAST_ACTION_COUNTER:
-            LAST_ACTION = None
-        return action
-
     p = random.random()
-    if p < epsilon:
-        if epsilon >= 0.65 and p < 0.65 * epsilon**2:
-            return 10
-        elif p >= epsilon / 8 or current_reward > -50 or epsilon >= 0.5:
-            return random.randint(0, meaningful_actions.shape[0] - 1)
-        else:
-            #  play the same random action multiple times (four times in a row) with a probability epsilon / 8
-            #  allows to unblock Mario in certain situations
-            LAST_ACTION = random.randint(0, meaningful_actions.shape[0] - 1)
-            LAST_ACTION_COUNTER = 4
-            return LAST_ACTION
+    if p <= epsilon:
+        return random.randint(0, meaningful_actions.shape[0] - 1)
     else:
         q_values = strategy.get_q_values(state)
         best_action = np.argmax(q_values)
@@ -123,8 +101,8 @@ def custom_epsilon_greedy(strategy, epsilon, state, current_reward=0, max_ratio=
             current_LOGS = logs
             return random.randint(0, meaningful_actions.shape[0] - 1)
         else:
-            choice = np.random.choice(best_actions, 1, p=proba)[0] # if epsilon < 0.85 else best_action
-            logs += "\nBest Action: {} | Action chosen: {}\n".format(best_action, choice)
+            choice = np.random.choice(best_actions, 1, p=proba)[0]
+            logs += "\nBest Action: {} | Action chosen: {}\n".format(best_action, action_meaning[choice])
             current_LOGS = logs
             return best_action
 
@@ -158,8 +136,10 @@ if __name__ == '__main__':
               Level7-1  Level8-1".split()
     t = 0
     epsilon = float(args['--epsilon'])
+    initial_episode = int(args['--episode'])
+    model_path = args['--model_path']
     strategy = None
-    init_iterations = 8
+    init_iterations = 10
     status = ""
     episode = 0
     max_ratio = min([1, epsilon * 1.5])
@@ -183,7 +163,7 @@ if __name__ == '__main__':
             t = 0
             total_reward = 0
             if not strategy:
-                strategy = DQLStrategy(env, number_of_actions=len(meaningful_actions), input_shape=input_shape)
+                strategy = DQLStrategy(env, number_of_actions=len(meaningful_actions), input_shape=input_shape, checkpoint_path=model_path, current_episode=initial_episode)
                 custom_epsilon_greedy(strategy, 0, next_state, max_ratio=max_ratio)
             else:
                 strategy.environment = env
@@ -201,23 +181,30 @@ if __name__ == '__main__':
                     # Dying
                     if info['PlayerState'] in [6, 11] and not info['time'] == 0:
                         dead = True
-                        reward_t = -0.5
+                        reward_t = -0.25
                     # Pipe
                     if info['PlayerState'] in [3, 2]:
-                        reward_t += 1
+                        reward_t += 5
                     # Climbing vine
                     elif info['PlayerState'] == 1:
-                        reward_t += 1
+                        reward_t += 1.25
                     # Blocked
                     elif info['PlayerState'] in [9, 12]:
-                            reward_t = -0.0625
+                        reward_t = -0.0125
                     reward += reward_t
                     next_state[i] = pre_process(next_state_t)
                     done = done_t or done
                 next_state = np.stack(next_state, axis=-1)
 
                 #  liveness
-                reward = -0.1 / 25 if not reward and not dead else reward
+                liveness_reward = -4 / 375 if not reward and not dead else 0
+                # right bonus
+                if meaningful_actions[action][7] and not dead and reward >= 0:
+                    liveness_reward += 0.5
+                # left malus
+                if meaningful_actions[action][6] and not dead and reward <= 0:
+                    liveness_reward -= 0.5
+                reward += liveness_reward
 
                 strategy.update(state, action, reward, next_state, done)
                 t += 1
@@ -243,7 +230,7 @@ if __name__ == '__main__':
                         best_score = best_score if best_score >= info['score'] else info['score']
                     if not init_iterations:
                         episode += 1
-                        epsilon = max(1e-3, epsilon * 0.998)  # decay epsilon at each episode
+                        epsilon = max(1e-3, epsilon * 0.9991)  # decay epsilon at each episode
                         max_ratio = min([1, epsilon * 1.5])
                     else:
                         init_iterations -= 1
