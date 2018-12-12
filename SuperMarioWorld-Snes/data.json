@@ -31,6 +31,18 @@
     "scrolling2":{
       "type": "<u1",
       "address": 8257622
+    },
+    "timer100":{
+      "type": "<u1",
+      "address": 8261425
+    },
+    "timer10":{
+      "type": "<u1",
+      "address": 8261426
+    },
+    "timer1":{
+      "type": "<u1",
+      "address": 8261427
     }
   }
 }
