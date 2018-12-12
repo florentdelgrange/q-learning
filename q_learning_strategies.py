@@ -11,6 +11,7 @@ from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, GlobalAveragePool
     AveragePooling2D, Lambda, Multiply
 from keras import backend as K
 import numpy as np
+from keras.layers.normalization import BatchNormalization
 
 from SarstReplayMemory import SarstReplayMemory
 
@@ -18,6 +19,7 @@ global graph
 graph = tf.get_default_graph()
 
 CHECKPOINT_PATH = './models/model_checkpoint.hdf5'
+
 
 def pre_process_input_state(s):
     s /= 255.
@@ -49,14 +51,17 @@ def huber_loss(y_true, y_pred, clip_value=1.0):
 def dqn_init(state_input_shape, number_of_actions, name="Deep-Q-Network"):
     state_input = Input(shape=state_input_shape, name="state")
     x = Lambda(pre_process_input_state)(state_input)
-    x = Conv2D(32, (8, 8), strides=(4, 4))(x)
+    x = Conv2D(8, (7, 7), strides=(2, 2))(x)
+    x = BatchNormalization()(x)
     x = Activation('relu')(x)
-    x = Conv2D(64, (4, 4), strides=(2, 2))(x)
+    x = Conv2D(16, (5, 5), strides=(2, 2))(x)
+    x = BatchNormalization()(x)
     x = Activation('relu')(x)
-    x = Conv2D(64, (3, 3), strides=(1, 1))(x)
+    x = Conv2D(32, (3, 3))(x)
+    x = BatchNormalization()(x)
     x = Activation('relu')(x)
     x = Flatten()(x)
-    x = Dense(512, activation='relu')(x)
+    x = Dense(256, activation='relu')(x)
     x = Dense(number_of_actions, name="q-values", kernel_initializer='zeros', activation='linear')(x)
 
     action_input = Input(shape=(number_of_actions,), name="action_mask")
@@ -268,8 +273,8 @@ class DQLStrategy(Strategy):
             self.__iteration %= self.history_size
 
         if not self.__iteration:
-            self.fit_main_dqn()
             self.__episode += 1
+            self.fit_main_dqn()
             self.__logs += "Episode {} ".format(self.__episode)
             if self.__random_exploration_phase:
                 self.__random_exploration_phase = False
@@ -282,7 +287,8 @@ class DQLStrategy(Strategy):
     def fit_main_dqn(self):
         print("Fit critical deep q-network...")
         if not self.__episode % self.switch_network_episode:
-            CHECKPOINT = ModelCheckpoint("{}_episode{}.hdf5".format(CHECKPOINT_PATH[:-5], self.__episode) , verbose=1, save_best_only=False)
+            CHECKPOINT = ModelCheckpoint("{}_episode{}.hdf5".format(CHECKPOINT_PATH[:-5], self.__episode), verbose=1,
+                                         save_best_only=False)
             CALLBACKS = [CHECKPOINT]
             self.__logs += "weights saved; "
         else:
@@ -311,6 +317,8 @@ class DQLStrategy(Strategy):
                                 [successor, np.array([np.ones(shape=self.number_of_actions)])]
                             )[0]
                             q_values[j][action] = rewards[index(i, j)] + self.gamma * np.amax(successor_q_values)
+                            # with open("logs_training.log", "a+") as f:
+                            #     f.write("current action={}, (one hot)={}, q_values(s, •)={}; r(s, {}, s')={}; max Q(s, a)={}; new q_values={}\n".format(action, str(actions_one_hot[j]), str(successor_q_values), action, rewards[index(i, j)], np.amax(successor_q_values), q_values[j]))
                         else:
                             q_values[j][action] = rewards[index(i, j)]
 
