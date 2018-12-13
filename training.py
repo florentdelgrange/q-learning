@@ -107,7 +107,7 @@ def custom_epsilon_greedy(strategy, epsilon, state, max_ratio=1.):
             choice = np.random.choice(best_actions, 1, p=proba)[0]
             logs += "\nBest Action: {} | Action chosen: {}\n".format(best_action, action_meaning[choice])
             current_LOGS = logs
-            return best_action
+            return choice
 
 
 def pre_process(observation):
@@ -163,12 +163,12 @@ if __name__ == '__main__':
             reverse_enum.reverse()
             emulator_state = states[
                 np.random.choice(np.array(range(25)), 1,
-                                 p=softmax(np.array(reverse_enum) + 3, temperature=1 / (epsilon / 2)))[0]
+                                 p=softmax(np.array(reverse_enum) + 3, temperature=1 / (epsilon**2)))[0]
             ]
             if t:
                 env.load_state(emulator_state)
             else:
-                env = retro.make("SuperMarioWorld-Snes", emulator_state, scenario='scenario')
+                env = retro.make("SuperMarioWorld-Snes", emulator_state, scenario='scenario2')
                 action_meaning = [str(env.get_action_meaning(action)) for action in meaningful_actions]
             next_state = env.reset()
             next_state = pre_process(next_state)
@@ -195,19 +195,24 @@ if __name__ == '__main__':
                 for i in range(TEMPORAL_MEMORY):
                     next_state_t, reward_t, done_t, info = env.step(meaningful_actions[action])
                     # Dying
-                    if info['PlayerStatus'] == 9 and not info['timer100'] == info['timer10'] == info['timer1'] == 0:
+                    if info['PlayerStatus'] == 9 and not (info['timer100'] == info['timer10'] == info['timer1'] == 0):
                         dead = True
+                        reward = -10
+                    reward += reward_t
                     next_state[i] = pre_process(next_state_t)
                     done = done_t or done
 
                 next_state = np.stack(next_state, axis=-1)
 
-                #  liveness
-                liveness_reward = -0.25 if not reward and not dead else 0
-                # right bonus
-                if meaningful_actions[action][7] and not dead and reward >= 0:
-                    liveness_reward = 0.5
-                # left and down malus
+                liveness_reward = 0
+                if meaningful_actions[action][7] and not dead and reward >= 0 and not info['blocked']:
+                    # right bonus
+                    liveness_reward += 0.5
+                if meaningful_actions[action][6] and not dead and not reward:
+                    liveness_reward -= 0.3
+                if reward <= 0 and not dead :
+                    #  liveness
+                    liveness_reward -= 0.25
                 reward += liveness_reward
 
                 strategy.update(state, action, reward, next_state, done)
@@ -237,7 +242,7 @@ if __name__ == '__main__':
                         best_score = best_score if best_score >= info['score'] else info['score']
                     if not init_iterations:
                         episode += 1
-                        epsilon = max(1e-3, epsilon * 0.995)  # decay epsilon at each episode
+                        epsilon = max(1e-3, epsilon * 0.9992)  # decay epsilon at each episode
                         max_ratio = epsilon
                     else:
                         init_iterations -= 1
