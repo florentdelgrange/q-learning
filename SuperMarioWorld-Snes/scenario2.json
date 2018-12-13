@@ -10,17 +10,7 @@
   "reward": {
     "variables": {
       "score": {
-        "reward": 2
-      },
-      "blocked":{
-        "op": "equal",
-        "reference": 1,
-        "reward": -0.025
-      },
-      "PlayerStatus": {
-        "op": "equal",
-        "reference": 9,
-        "reward": -0.5
+        "reward": 0.125
       },
       "PlayerStatus": {
         "op": "equal",
