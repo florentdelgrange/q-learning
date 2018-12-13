@@ -1,4 +1,4 @@
-"""Deep q-learning training for Super Mario World
+"""Deep q-learning training for Super Mario Bros (NES)
 
 Usage:
     training.py [--epsilon <epsilon>] [--episode <episode>] [--model_path <path>]
@@ -7,7 +7,7 @@ Usage:
 Options:
 -h --help                           Display help.
 -e --epsilon <epsilon>              Actions are selected randomly with a probability epsilon (epsilon-greedy algorithm). [default: 1.]
--p --model_path <path>              Path of weights to load. [default: ""]
+-p --model_path <path>              Path of weights to load.
 --episode <episode>                 Episode. [default: 1]
 """
 
@@ -34,7 +34,7 @@ meaningful_actions = np.array([
     # [0., 0., 0., 0., 0., 0., 0., 1., 0.],  # RIGHT button
     # [0., 0., 0., 0., 0., 0., 0., 0., 1.],  # A button
     [1., 0., 0., 0., 0., 0., 0., 1., 0.],  # B + RIGHT
-    [1., 0., 0., 0., 0., 0., 0., 1., 1.],  # A + B + RIGHT
+    # [1., 0., 0., 0., 0., 0., 0., 1., 1.],  # A + B + RIGHT
     # [0., 0., 0., 0., 1., 0., 0., 0., 1.],  # A + UP
     # [0., 0., 0., 0., 1., 0., 0., 1., 1.],  # A + UP  + RIGHT
     [1., 0., 0., 0., 1., 0., 0., 1., 1.],  # A + B + UP + RIGHT
@@ -123,10 +123,12 @@ def show_all_actions_meaning(env):
         print(env.get_action_meaning(action))
         print(" ")
 
-
-def liveness(reward, action):
-    return reward if reward or action[7] else -0.0125
-
+def is_relevant_action(prev_state, next_state):
+    for i in range(TEMPORAL_MEMORY):
+        for j in range(TEMPORAL_MEMORY):
+            if i != j and np.array_equal(prev_state[i][32:,], next_state[j][32:,]):
+                return False
+    return True
 
 if __name__ == '__main__':
 
@@ -137,18 +139,19 @@ if __name__ == '__main__':
     t = 0
     epsilon = float(args['--epsilon'])
     initial_episode = int(args['--episode'])
-    model_path = args['--model_path']
+    model_path = args['--model_path'] if args['--model_path'] else ""
     strategy = None
     init_iterations = 10
     status = ""
     episode = 0
     max_ratio = min([1, epsilon * 1.5])
     best_score = None
+    prev_state = None
 
     try:
         while True:
             emulator_state = states[
-                np.random.choice(np.array(range(8)), 1, p=softmax(np.array([7, 6, 5, 4, 3, 2, 1, 0]) + 3, temperature=1/epsilon))[0]
+                np.random.choice(np.array(range(8)), 1, p=softmax(np.array([7, 6, 5, 4, 3, 2, 1, 0]) + 3, temperature=1/(2*epsilon)))[0]
             ]
             if t:
                 env.load_state(emulator_state)
@@ -181,28 +184,35 @@ if __name__ == '__main__':
                     # Dying
                     if info['PlayerState'] in [6, 11] and not info['time'] == 0:
                         dead = True
-                        reward_t = -0.25
+                        reward_t = -0.5
                     # Pipe
                     if info['PlayerState'] in [3, 2]:
-                        reward_t += 5
+                        reward_t += 0.05
                     # Climbing vine
                     elif info['PlayerState'] == 1:
                         reward_t += 1.25
                     # Blocked
                     elif info['PlayerState'] in [9, 12]:
-                        reward_t = -0.0125
+                        reward_t = -0.05
                     reward += reward_t
                     next_state[i] = pre_process(next_state_t)
                     done = done_t or done
+                # check if the action played is relevant
+                # if prev_state != None and not is_relevant_action(prev_state, next_state):
+                #     reward = -5
+                    #for i, array in enumerate(list(prev_state) + list(next_state)):
+                    #    plt.imsave("last_state{}.png".format(i), np.array(np.squeeze(array[32:,])))
+                # prev_state = next_state
+
                 next_state = np.stack(next_state, axis=-1)
 
                 #  liveness
                 liveness_reward = -4 / 375 if not reward and not dead else 0
                 # right bonus
-                if meaningful_actions[action][7] and not dead and reward >= 0:
+                if meaningful_actions[action][7] and not dead and reward > 0:
                     liveness_reward += 0.5
-                # left malus
-                if meaningful_actions[action][6] and not dead and reward <= 0:
+                # left and down malus
+                if (meaningful_actions[action][6] or meaningful_actions[action][5]) and not dead and reward <= 0:
                     liveness_reward -= 0.5
                 reward += liveness_reward
 
@@ -230,7 +240,7 @@ if __name__ == '__main__':
                         best_score = best_score if best_score >= info['score'] else info['score']
                     if not init_iterations:
                         episode += 1
-                        epsilon = max(1e-3, epsilon * 0.9991)  # decay epsilon at each episode
+                        epsilon = max(1e-3, epsilon * 0.995)  # decay epsilon at each episode
                         max_ratio = min([1, epsilon * 1.5])
                     else:
                         init_iterations -= 1
