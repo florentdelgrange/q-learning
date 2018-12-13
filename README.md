@@ -19,6 +19,7 @@ The files training.py and training-smb.py provides a framework for Super Mario W
 The files in the directories SuperMarioX in this project (data and scenario json files) have
 to be put in the corresponding gym-retro directory.
     - ***Where is located my gym-retro installation ?***
+    
     Simply run a python interpreter and execute
     ```python
   import retro
@@ -26,9 +27,17 @@ to be put in the corresponding gym-retro directory.
     ```
 	to know your gym-retro installation location
 	- ***Where to put the scenarios and data files ?***
+	
 	Go to the directory found on the previous step (e.g., ```PATH_TO_PYTHON/python3.X/site-packages/retro```) and
 	and then go to the data/stable directory. All games supported by gym-retro are located here.
 	In our case, go to SuperMarioWorld-Snes or SuperMarioBros-Nes and put the scenario et data json files in it.
 
-- Run the training
-simply run training.py for SuperMarioWorld or training-smb.py for SuperMarioBros
+- ***Run the training ?***
+
+Simply run ```training.py``` for SuperMarioWorld or ```training-smb.py``` for SuperMarioBros
+
+- Change the reward function
+
+	- The file data.json contains RAM addresses linked to some game informations.
+	- The file scenario.json contains the rewards of states reaching these game informations.
+
