@@ -1,4 +1,4 @@
-# Q-learning strategies
+# Deep Q-learning strategies
 This project provides a clasical deep-q-learning strategy for solving diverse games.
 It uses gym-retro for the emulation of games and the environment.
 The files training.py and training-smb.py provides a framework for Super Mario World and Super Mario Bros games.
