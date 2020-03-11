@@ -32,7 +32,7 @@ to be put in the corresponding gym-retro directory.
 	and then go to the data/stable directory. All games supported by gym-retro are located here.
 	In our case, go to SuperMarioWorld-Snes or SuperMarioBros-Nes and put the scenario et data json files in it.
 
-- ***Run the training ?***
+- ***Train Mario***
 
 Simply run ```training.py``` for SuperMarioWorld or ```training-smb.py``` for SuperMarioBros
 
